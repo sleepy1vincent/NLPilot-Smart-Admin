@@ -1,0 +1,32 @@
+# ============ Python ============
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ============ 环境变量（重要！不上传密码）============
+.env
+.env.local
+.env.*.local
+
+# ============ 前端 ============
+node_modules/
+dist/
+.angular/
+*.log
+
+# ============ IDE ============
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ============ 系统 ============
+.DS_Store
+Thumbs.db
+
+# ============ 上传文件（将来）============
+backend/uploads/*
+!backend/uploads/.gitkeep

@@ -1,0 +1,27 @@
+<div class="chat">
+  <div class="messages">
+    @for (m of messages; track $index) {
+      <div class="msg" [class.user]="m.role === 'user'">
+        <span class="bubble">{{ m.content }}</span>
+      </div>
+    }
+    @if (loading) {
+      <div class="msg">
+        <span class="bubble typing">思考中…</span>
+      </div>
+    }
+  </div>
+
+  <div class="input-row">
+    <textarea
+      [(ngModel)]="userInput"
+      (keydown)="onKey($event)"
+      placeholder="例如：查一下 iPhone 的库存 / 新增商品 AirPods,价格 999,库存 50"
+      rows="2"
+      [disabled]="loading"
+    ></textarea>
+    <button (click)="send()" [disabled]="loading || !userInput.trim()">
+      发送
+    </button>
+  </div>
+</div>

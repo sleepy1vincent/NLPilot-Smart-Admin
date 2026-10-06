@@ -1,0 +1,93 @@
+.chat {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 60px);   /* 减去 navbar 高度 */
+  background: #f7f8fa;
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.msg {
+  display: flex;
+}
+
+.msg.user {
+  justify-content: flex-end;
+}
+
+.bubble {
+  max-width: 70%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #fff;
+  color: #333;
+  font-size: 14px;
+  line-height: 1.5;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.msg.user .bubble {
+  background: #4a90e2;
+  color: #fff;
+}
+
+.bubble.typing {
+  color: #999;
+  font-style: italic;
+}
+
+.input-row {
+  display: flex;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid #e8e8e8;
+  background: #fff;
+  align-items: flex-end;
+}
+
+.input-row textarea {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  resize: none;
+  transition: border-color 0.15s;
+}
+
+.input-row textarea:focus {
+  border-color: #4a90e2;
+  box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.1);
+}
+
+.input-row button {
+  padding: 10px 24px;
+  background: #4a90e2;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.input-row button:hover:not(:disabled) {
+  background: #3a7bc8;
+}
+
+.input-row button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

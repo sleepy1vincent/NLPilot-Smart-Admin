@@ -1,0 +1,47 @@
+<div class="product-list">
+  <h2>商品列表</h2>
+
+  <button (click)="load()" [disabled]="loading">
+    {{ loading ? '加载中…' : '刷新' }}
+  </button>
+
+  @if (errorMsg) {
+    <p class="error">{{ errorMsg }}</p>
+  }
+
+  @if (products.length === 0 && !loading) {
+    <p>暂无商品</p>
+  } @else {
+    <table>
+      <thead>
+        <tr class="list_head">
+          <th>ID</th>
+          <th>名称</th>
+          <th>价格</th>
+          <th>库存</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (p of products; track p.id) {
+          <tr class="products-list">
+            <td>{{ p.id }}</td>
+            <td>{{ p.name }}</td>
+            <td>¥{{ p.price }}</td>
+            <td>{{ p.stock }}</td>
+              <td class="actions">
+                <button class="btn-edit" (click)="editPrice(p)">改价</button>
+                <button class="btn-edit" (click)="editStock(p)">改库存</button>
+                <button class="btn-delete" (click)="del(p.name)">删除</button>
+              </td>
+          </tr>
+        }
+        <tr class="new-row">
+          <td colspan="5">
+            <button class="btn-new" (click)="create()">+ 新建商品</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  }
+</div>

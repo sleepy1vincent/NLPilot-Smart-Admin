@@ -1,0 +1,126 @@
+/* product-list.component.css */
+.product-container {
+  max-width: 1000px;
+  margin: 20px auto;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.product-header {
+  padding: 16px 20px;
+  background: #1e293b;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.product-header .refresh-btn {
+  padding: 6px 16px;
+  background: #38bdf8;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+/* 新建行 */
+.new-row td {
+  padding: 16px 20px;
+  border-bottom: none;        /* 不要下边线，看起来像"表格底部" */
+  text-align: center;          /* 按钮居中 */
+}
+
+/* 新建按钮（主色） */
+.btn-new {
+  padding: 8px 20px;
+  background: #4a90e2;
+  color: #fff;
+  border: 1px solid #4a90e2;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-new:hover {
+  background: #3a7bc8;
+  border-color: #3a7bc8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(74, 144, 226, 0.3);
+}
+
+.btn-new:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 5px rgba(74, 144, 226, 0.3);
+}
+.product-header .refresh-btn:hover {
+  background: #0ea5e9;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;    /* ← 关键：合并相邻边框 */
+}
+
+th, td {
+  padding: 12px 20px;
+  text-align: left;
+  border-bottom: 1px solid #e0e0e0;   /* ← 只画下边线 */
+}
+
+th {
+  background: #fafafa;
+  font-weight: 600;
+  border-bottom: 2px solid #ccc;      /* 表头下边线稍粗 */
+}
+
+tbody tr:hover {
+  background: #f5f8ff;                /* 悬停整行高亮 */
+}
+.product-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.product-table th {
+  padding: 12px 20px;
+  text-align: left;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.product-table td {
+  padding: 14px 20px;
+  font-size: 14px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.product-table tr:hover {
+  background: #f8fafc;
+}
+
+.product-table .stock-low {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+.product-table .stock-ok {
+  color: #22c55e;
+}
+
+.empty-state {
+  padding: 60px 20px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 14px;
+}
