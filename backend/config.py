@@ -10,7 +10,7 @@ class Config:
     DB_NAME = os.getenv("DB_NAME", "nlpilot")
 
     OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
-    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 
     PORT = int(os.getenv("FLASK_PORT", 5000))
     DEBUG = os.getenv("FLASK_DEBUG", "true").lower() == "true"

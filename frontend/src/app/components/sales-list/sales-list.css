@@ -1,0 +1,97 @@
+.sales-list {
+  padding: 20px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.header h2 {
+  margin: 0;
+  font-size: 20px;
+  color: #333;
+}
+
+.filters {
+  display: flex;
+  gap: 8px;
+}
+
+.filters button {
+  padding: 6px 14px;
+  border: 1px solid #d0d0d0;
+  background: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #333;
+  transition: all 0.15s;
+}
+
+.filters button:hover {
+  border-color: #4a90e2;
+  color: #4a90e2;
+}
+
+.filters button.active {
+  background: #4a90e2;
+  color: #fff;
+  border-color: #4a90e2;
+}
+
+.refresh {
+  padding: 6px 16px;
+  background: #4a90e2;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  padding: 10px 16px;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+}
+
+th {
+  background: #fafafa;
+  font-weight: 600;
+  color: #555;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+tbody tr:hover {
+  background: #f8faff;
+}
+
+.error {
+  color: #e74c3c;
+  background: #ffeaea;
+  padding: 8px 14px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.empty {
+  text-align: center;
+  color: #999;
+  padding: 40px;
+  font-size: 14px;
+}

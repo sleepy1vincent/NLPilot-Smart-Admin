@@ -19,6 +19,8 @@
           <th>名称</th>
           <th>价格</th>
           <th>库存</th>
+          <th>昨日进货</th>
+          <th>昨日售出</th>
           <th>操作</th>
         </tr>
       </thead>
@@ -28,7 +30,9 @@
             <td>{{ p.id }}</td>
             <td>{{ p.name }}</td>
             <td>¥{{ p.price }}</td>
-            <td>{{ p.stock }}</td>
+            <td>{{p.stock}}</td>
+            <td>+{{ yesterdayBoughtMap[p.name] ?? 0 }}</td>
+            <td>-{{ yesterdaySoldMap[p.name] ?? 0 }}</td>
               <td class="actions">
                 <button class="btn-edit" (click)="editPrice(p)">改价</button>
                 <button class="btn-edit" (click)="editStock(p)">改库存</button>

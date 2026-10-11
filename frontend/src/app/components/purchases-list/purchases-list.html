@@ -1,0 +1,47 @@
+<div class="sales-list">
+  <div class="header">
+    <h2>销售记录</h2>
+    <div class="filters">
+      <button (click)="changeDays(1)" [class.active]="days === 1">最近 24h</button>
+      <button (click)="changeDays(7)" [class.active]="days === 7">最近 7 天</button>
+      <button (click)="changeDays(30)" [class.active]="days === 30">最近 30 天</button>
+      <button (click)="changeDays(null)" [class.active]="days === null">全部</button>
+    </div>
+    <button class="refresh" (click)="load()" [disabled]="loading">
+      {{ loading ? '加载中…' : '刷新' }}
+    </button>
+  </div>
+
+  @if (errorMsg) {
+    <p class="error">{{ errorMsg }}</p>
+  }
+
+  @if (sales.length === 0 && !loading) {
+    <p class="empty">暂无销售记录</p>
+  } @else {
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>商品名</th>
+          <th>数量</th>
+          <th>单价</th>
+          <th>总价</th>
+          <th>时间</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (s of sales; track s.id) {
+          <tr>
+            <td>{{ s.id }}</td>
+            <td>{{ s.product_name }}</td>
+            <td>{{ s.quantity }}</td>
+            <td>¥{{ s.unit_price }}</td>
+            <td>¥{{ s.total }}</td>
+            <td>{{ s.sold_at | date:'yyyy-MM-dd HH:mm' }}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</div>

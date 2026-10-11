@@ -1,55 +1,64 @@
 # NLPilot - 智能商品管理系统
 
-自然语言驱动的商品管理系统。用对话完成商品的增删改查。
+> 自然语言驱动的商品管理。
+> ⚠️ **实验性项目** —— 基于 7B 模型的 AI 工具调用，稳定性有限。
+
+## ⚠️ 当前状态
+
+- **版本**：v0.2（L2）
+- **成熟度**：实验性 / Demo
+- **已知局限**：见下文
+
+## 支持的能力（范围）
+
+### ✅ 稳定支持
+- 查询商品（按名字）
+- 新增商品
+- 修改价格 / 库存
+- 删除商品（带确认）
+- 打折
+- 记录销售 / 进货
+- 查询销售 / 进货记录
+- 销售统计
+
+### ⚠️ 有限支持
+- 模糊表达（"便宜的"、"卖得好的"）—— 依赖模型理解
+- 多轮上下文（"给它打八折"）—— 有限
+- 复杂语义 —— 不稳定
+
+### ❌ 不支持
+- 历史库存查询（"昨天库存多少"）
+- 自主规划（"帮我做促销方案"）
+- 多步推理（"对比一下"）
+
+## 已知局限
+
+本项目使用 **Qwen2.5-7B（Ollama 本地）** 做意图识别和工具调用。
+由于 7B 模型的能力限制，**工具调用存在不稳定性**：
+
+- AI 可能**没调工具**（直接回话）
+- AI 可能**调错工具**（"查库存" → "记录销售"）
+- AI 可能**参数错误**
+
+**缓解措施**：
+- 重试机制（3 次，不同 seed）
+- prompt 调优
+- 危险操作二次确认
+
+**但无法 100% 消除** —— 这是当前 LLM Agent 的普遍现状。
 
 ## 技术栈
-
-- 前端：Angular
-- 后端：Flask + PyMySQL + DBUtils
-- 数据库：MySQL 8
-- AI：Ollama + Qwen2.5
-
-## 功能
-
-- 自然语言查询、新增、修改、删除商品
-- 删除操作二次确认
-- 统一响应格式 `{code, message, data}`
+...
 
 ## 快速开始
+...
 
-### 1. 数据库
-```bash
-mysql -u root -p < database/init.sql
-```
-### 2. 后端
-```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env     # 修改数据库密码
-python app.py
-```
-### 3. 前端
-```bash
-cd frontend
-npm install
-ng serve
-```
-### 4. AI 模型
-```bash
-ollama pull qwen2.5:7b
-```
-### 使用示例
-```text
-查一下 iPhone 的库存
-→ 共 1 条：iPhone 15  ¥5999.00  库存 120
+## 版本历史
+- v0.1：基础 CRUD + prompt+JSON 意图识别
+- v0.2：Function Calling + 对话记忆 + 销售/进货模块 ← 当前
 
-添加商品 AirPods，价格 999，库存 50
-→ 新增成功：AirPods
-```
-项目结构
-text
-backend/    Flask 后端
-frontend/   Angular 前端
-database/   SQL 脚本
+## 后续计划
+- 更稳的工具调用（换更大模型 / 微调）
+- 多步推理（ReAct）
+- 语义搜索（embedding）
+...

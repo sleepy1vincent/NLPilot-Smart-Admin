@@ -3,7 +3,7 @@ export interface Product {
   name: string;
   price: string;
   stock: number;
-  last_update: string; 
+  last_update: string;
 }
 export interface ApiResponse<T> {
   code: number;

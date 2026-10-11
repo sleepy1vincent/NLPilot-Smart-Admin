@@ -23,19 +23,26 @@ export class Chat {
   private cdr = inject(ChangeDetectorRef);
 
   send(): void {
-    const text = this.userInput.trim();
-    if (!text || this.loading) return;
+  const text = this.userInput.trim();
+  if (!text || this.loading) return;
 
-    this.messages.push({ role: 'user', content: text });
-    this.userInput = '';
-    this.loading = true;
-    this.cdr.detectChanges();
+  this.messages.push({ role: 'user', content: text });
+  this.userInput = '';
+  this.loading = true;
+  this.cdr.detectChanges();
+  const history = this.messages
+    .slice(-4)                                   
+    .slice(0, -1)
+    .map(m => ({
+      role: m.role === 'user' ? 'user' : 'assistant',
+      content: m.content,
+    }));
 
-    this.api.chat(text).subscribe({
-      next: (res) => this._handleResponse(res),
-      error: (err) => this._handleError(err),
-    });
-  }
+    this.api.chat(text, history).subscribe({ 
+    next: (res) => this._handleResponse(res),
+    error: (err) => this._handleError(err),
+  });
+}
 
   onKey(e: KeyboardEvent): void {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -47,11 +54,10 @@ export class Chat {
   private _handleResponse(res: any): void {
     const result = res?.data?.result;
 
-    // 需要确认的操作（如删除）
     if (result?.need_confirm) {
       const ok = confirm(result.message || '确认执行此操作？');
       if (ok) {
-        this._doConfirm(result.action, result.target);
+        this._doConfirm(result.action, result.target, result?.data??"");
       } else {
         this._pushAi('已取消');
       }
@@ -62,8 +68,8 @@ export class Chat {
     this._pushAi(reply);
   }
 
-  private _doConfirm(action: string, target: string): void {
-    this.api.confirm(action, target).subscribe({
+  private _doConfirm(action: string, target: string,data:any): void {
+    this.api.confirm(action, target,data).subscribe({
       next: (res: any) => {
         this._pushAi(res?.message || '操作成功');
       },
@@ -84,28 +90,52 @@ export class Chat {
   }
 
   private _formatReply(result: any, fallback: string): string {
-    if (!result) return fallback ?? '（无回复）';
+  if (!result) return fallback ?? '（无回复）';
 
-    const data = result.data;
+  const data = result.data;
 
-    if (Array.isArray(data)) {
-      if (data.length === 0) return '未找到匹配的商品';
-      const lines = data.map((p: any) =>
-        `· ${p.name}  ¥${p.price}  库存 ${p.stock}`
-      );
-      return `共 ${data.length} 条：\n${lines.join('\n')}`;
-    }
+  if (Array.isArray(data)) {
+    if (data.length === 0) return '未找到数据';
 
-    if (data && typeof data === 'object' && 'id' in data) {
-      return `${result.message || '新增成功'}(ID: ${data.id})`;
-    }
+    const lines = data.map((item: any) => {
+      // 商品类（有 name + price）
+      if (item.name != null && item.price != null) {
+        const stock = item.stock != null ? `  库存 ${item.stock}` : '';
+        return `· ${item.name}  ¥${item.price}${stock}`;
+      }
 
-    // 对象含 affected = 修改/删除
-    if (data && typeof data === 'object' && 'affected' in data) {
-      return `${result.message || '操作成功'}（影响 ${data.affected} 行）`;
-    }
+      // 销售/进货记录（有 product_name + quantity）
+      if (item.product_name != null && item.quantity != null) {
+        const amount = item.total != null ? `  ¥${item.total}` : '';
+        const time = item.sold_at || item.purchased_at || '';
+        const timeStr = time ? `  ${this._fmtTime(time)}` : '';
+        return `· ${item.product_name}  × ${item.quantity}${amount}${timeStr}`;
+      }
 
-    // 兜底
-    return result.message ?? fallback ?? '（无回复）';
+      // 兜底：JSON
+      return `· ${JSON.stringify(item)}`;
+    });
+
+    return `共 ${data.length} 条：\n${lines.join('\n')}`;
   }
+
+  // 对象含 id（新增）
+  if (data && typeof data === 'object' && 'id' in data) {
+    return `${result.message || '新增成功'}(ID: ${data.id})`;
+  }
+
+  // 对象含 affected（修改/删除）
+  if (data && typeof data === 'object' && 'affected' in data) {
+    return `${result.message || '操作成功'}（影响 ${data.affected} 行）`;
+  }
+
+  return result.message ?? fallback ?? '（无回复）';
+}
+
+private _fmtTime(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 }
