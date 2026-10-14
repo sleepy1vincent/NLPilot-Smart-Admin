@@ -8,6 +8,7 @@ bp = Blueprint("sales", __name__, url_prefix="/api")
 def get_sales():
     """查询销售记录"""
     name=request.args.get("name")
+    name = (name or "").replace(" ", "").strip()
     days=request.args.get("days",type=int)
     row=sales_dao.get_sales(product_name=name,days=days)
     return success(data=row,message=f"共{len(row)}条")
@@ -16,12 +17,12 @@ def get_sales():
 def add_sale():
     """记录一笔销售"""
     body=request.get_json(silent=True)or{}
-    name=body.get("name"or"").strip()
+    name = (body.get("name") or "").replace(" ", "").strip()
     quantity = body.get("quantity")
     unit_price = body.get("unit_price")
     if not name:
         return error("name 不能为空", code=400)
-    if not isinstance(quantity, int) or quantity <= 0:
+    if not isinstance(quantity, int) or isinstance(quantity,bool) or quantity <= 0:
         return error("quantity 必须是正整数", code=400)
     product = product_dao.get_by_name(name)
     if not product:
@@ -30,7 +31,7 @@ def add_sale():
         return error(f"库存不足：当前 {product['stock']}，请求 {quantity}", code=400)
     if unit_price is None:
         unit_price = float(product["price"])
-    elif not isinstance(unit_price, (int, float)) or unit_price < 0:
+    elif not isinstance(unit_price, (int, float)) or isinstance(unit_price,bool) or unit_price < 0:
         return error("unit_price 不合法", code=400)
     try:
         sale_id = sales_dao.record_sale(name, quantity, unit_price)
@@ -47,6 +48,7 @@ def add_sale():
 def sales_summary():
     """销量汇总，支持 ?name=xxx&days=30"""
     name = request.args.get("name")
+    name = (name or "").replace(" ", "").strip()
     days = request.args.get("days", type=int)
     total_qty = sales_dao.total_sold(product_name=name, days=days)
     rows = sales_dao.get_sales(product_name=name, days=days)

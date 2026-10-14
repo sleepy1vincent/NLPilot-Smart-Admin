@@ -23,13 +23,13 @@ def add_product():
     name = body.get("name")
     price = body.get("price")
     stock = body.get("stock")
-
+    name = (name or "").replace(" ", "").strip()
     # 参数校验
     if not name:
         return error("name 不能为空", code=400)
-    if not isinstance(price, (int, float)) or price < 0:
+    if not isinstance(price, (int, float)) or isinstance(price,bool) or price < 0:
         return error("price 必须是非负数", code=400)
-    if not isinstance(stock, int) or stock < 0:
+    if not isinstance(stock, int) or isinstance(stock,bool) or stock < 0:
         return error("stock 必须是非负整数", code=400)
 
     # 重名检查
@@ -51,7 +51,7 @@ def add_product():
 @bp.route("/products/<name>", methods=["PUT"])
 def update_product(name):
     body = request.get_json(silent=True) or {}
-
+    name = (name or "").replace(" ", "").strip()
     if not product_dao.get_by_name(name):
         return error(f"商品 {name} 不存在", code=404)
 
@@ -61,11 +61,11 @@ def update_product(name):
         if k in body:
             v = body[k]
             if k == "price":
-                if not isinstance(v, (int, float)) or v < 0:
+                if not isinstance(v, (int, float)) or isinstance(v,bool) or v < 0:
                     return error("price 必须是非负数", code=400)
                 fields[k] = v
             elif k == "stock":
-                if not isinstance(v, int) or v < 0:
+                if not isinstance(v, int) or isinstance(v,bool) or v < 0:
                     return error("stock 必须是非负整数", code=400)
                 fields[k] = v
     if not fields:
@@ -80,6 +80,7 @@ def update_product(name):
 @bp.route("/products/<name>", methods=["DELETE"])
 def delete_product(name):
     """删除商品"""
+    name = (name or "").replace(" ", "").strip()
     if not product_dao.get_by_name(name):
         return error(f"商品 {name} 不存在", code=404)
 

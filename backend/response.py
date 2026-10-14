@@ -6,4 +6,11 @@ def success(data=None, message="success"):
 
 
 def error(message="error", code=500, data=None):
-    return jsonify({"code": code, "message": message, "data": data})
+    """
+    错误响应。
+    - code: 业务码 = HTTP 码（推荐 400-599）
+    - 非法码降级 400
+    """
+    if code < 400 or code > 599:
+        code = 400
+    return jsonify({"code": code, "message": message, "data": data}), code

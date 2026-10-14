@@ -42,10 +42,10 @@ export class ApiService {
     if (days != null) params = params.set('days', days.toString());
     return this.http.get<ApiResponse<any[]>>(`${this.base}/sales`, { params });
   }
-  getBought(name?:string,day?:number):Observable<ApiResponse<any[]>>{
+  getBought(name?:string,days?:number):Observable<ApiResponse<any[]>>{
     let params = new HttpParams();
     if(name) params=params.set('name',name);
-    if(day!=null) params=params.set('day',day.toString());
+    if(days!=null) params=params.set('days',days.toString());
     return this.http.get<ApiResponse<any[]>>(`${this.base}/purchases`, { params })
   }
 }

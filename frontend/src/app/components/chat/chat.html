@@ -16,7 +16,7 @@
     <textarea
       [(ngModel)]="userInput"
       (keydown)="onKey($event)"
-      placeholder="例如：查一下 iPhone 的库存 / 新增商品 AirPods,价格 999,库存 50"
+      placeholder="例如：查一下 iPhone 的库存,但请注意商品名出现的多余空格将被删去"
       rows="2"
       [disabled]="loading"
     ></textarea>

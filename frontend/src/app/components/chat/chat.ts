@@ -86,8 +86,26 @@ export class Chat {
   }
 
   private _handleError(err: any): void {
-    this._pushAi('请求失败：' + (err.error?.message || err.message));
+  console.error('[chat] 请求失败:', {
+    status: err.status,
+    statusText: err.statusText,
+    error: err.error,
+    message: err.message,
+  });
+  let userMessage = '抱歉，暂时无法处理，请稍后重试';
+  if (err.status === 0) {
+    userMessage = '网络连接失败，请检查网络后重试';
+  } else if (err.status === 400) {
+    userMessage = err.error?.message || '输入格式不正确';
+  } else if (err.status === 404) {
+    userMessage = '未找到相关数据';
+  } else if (err.status === 500) {
+    userMessage = '服务器暂时无法处理，请稍后重试';
   }
+  this._pushAi(userMessage);
+  this.loading = false;
+  this.cdr.detectChanges();
+}
 
   private _formatReply(result: any, fallback: string): string {
   if (!result) return fallback ?? '（无回复）';

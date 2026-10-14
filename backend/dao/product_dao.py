@@ -19,8 +19,6 @@ def query_products(name=None):
             return cur.fetchall()
     finally:
         conn.close()
-
-
 def get_by_name(name):
     conn = get_conn()
     try:
@@ -32,8 +30,6 @@ def get_by_name(name):
             return cur.fetchone()
     finally:
         conn.close()
-
-
 def insert_product(name, price, stock):
     conn = get_conn()
     try:
@@ -50,8 +46,6 @@ def insert_product(name, price, stock):
         raise
     finally:
         conn.close()
-
-
 def update_product(name, fields):
     if not fields:
         return 0
@@ -68,8 +62,6 @@ def update_product(name, fields):
         raise
     finally:
         conn.close()
-
-
 def delete_product(name):
     conn = get_conn()
     try:
