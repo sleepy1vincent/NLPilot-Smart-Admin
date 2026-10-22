@@ -2,7 +2,8 @@ from flask import Blueprint, request
 from pymysql.err import IntegrityError
 from dao import product_dao
 from response import success, error
-
+from services import rag_services
+from services.tools import create_product as _create_product
 bp = Blueprint("product", __name__, url_prefix="/api")
 
 
@@ -37,8 +38,11 @@ def add_product():
         return error(f"商品 {name} 已存在", code=409)
 
     try:
-        new_id = product_dao.insert_product(name, price, stock)
-        return success(data={"id": new_id}, message="新增成功")
+        result = _create_product(name, price, stock)
+        if not result.get("ok"):
+            msg = result.get("message", "新增失败")
+            return error(msg, code=409 if "已存在" in msg else 400)
+        return success(data={"id": result["id"]}, message="新增成功")
     except IntegrityError as e:
         if e.args[0] == 1062:
             return error(f"商品 {name} 已存在", code=409)

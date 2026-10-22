@@ -4,3 +4,4 @@ PyMySQL==1.2.0
 DBUtils==3.1.2
 python-dotenv==1.2.3
 ollama==0.6.2
+chromadb==1.5.9

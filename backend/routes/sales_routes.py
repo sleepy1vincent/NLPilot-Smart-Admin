@@ -1,6 +1,7 @@
 from flask import Blueprint, request
-from dao import sales_dao, product_dao
+from dao import sales_dao
 from response import success, error
+from services.tools import record_sale as _record_sale
 
 bp = Blueprint("sales", __name__, url_prefix="/api")
 
@@ -15,34 +16,39 @@ def get_sales():
 
 @bp.route("sales",methods=["POST"])
 def add_sale():
-    """记录一笔销售"""
+    """
+    记录一笔销售。
+
+    业务逻辑（库存检查 / 写记录 / 扣库存 / 事务 / 行锁）全部在 services.tools.record_sale 里，
+    这里只负责：解析请求 -> 做参数格式校验 -> 把业务错误码翻译成 HTTP 状态码。
+    """
     body=request.get_json(silent=True)or{}
-    name = (body.get("name") or "").replace(" ", "").strip()
+    name = body.get("name")
     quantity = body.get("quantity")
     unit_price = body.get("unit_price")
-    if not name:
+
+    # 只做"格式"校验，业务校验交给 record_sale
+    if not (name or "").replace(" ", "").strip():
         return error("name 不能为空", code=400)
     if not isinstance(quantity, int) or isinstance(quantity,bool) or quantity <= 0:
         return error("quantity 必须是正整数", code=400)
-    product = product_dao.get_by_name(name)
-    if not product:
-        return error(f"商品 {name} 不存在", code=404)
-    if quantity > product["stock"]:
-        return error(f"库存不足：当前 {product['stock']}，请求 {quantity}", code=400)
-    if unit_price is None:
-        unit_price = float(product["price"])
-    elif not isinstance(unit_price, (int, float)) or isinstance(unit_price,bool) or unit_price < 0:
+    if unit_price is not None and (
+        not isinstance(unit_price, (int, float))
+        or isinstance(unit_price, bool)
+        or unit_price < 0
+    ):
         return error("unit_price 不合法", code=400)
-    try:
-        sale_id = sales_dao.record_sale(name, quantity, unit_price)
-        new_stock = product["stock"] - quantity
-        product_dao.update_product(name, {"stock": new_stock})
-        return success(
-            data={"sale_id": sale_id, "new_stock": new_stock},
-            message=f"已记录销售：{name} × {quantity}",
-        )
-    except Exception as e:
-        return error(f"记录失败：{e}", code=500)
+
+    result = _record_sale(name, quantity, unit_price)
+    if not result.get("ok"):
+        msg = result.get("message", "记录失败")
+        code = 404 if "不存在" in msg else 400
+        return error(msg, code=code)
+
+    return success(
+        data={"sale_id": result["sale_id"], "new_stock": result["new_stock"]},
+        message=f"已记录销售：{name} × {quantity}",
+    )
 
 @bp.route("/sales/summary", methods=["GET"])
 def sales_summary():

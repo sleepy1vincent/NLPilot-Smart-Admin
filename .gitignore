@@ -30,3 +30,9 @@ Thumbs.db
 # ============ 上传文件（将来）============
 backend/uploads/*
 !backend/uploads/.gitkeep
+
+# ============ RAG 向量库（运行时生成，启动自动重建）============
+backend/rag_store/
+
+# ============ 图表中间产物（成品在 docs/）============
+.archify/
