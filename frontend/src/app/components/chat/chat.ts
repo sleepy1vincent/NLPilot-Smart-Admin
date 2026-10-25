@@ -5,6 +5,10 @@ import { ApiService } from '../../services/api.service';
 interface ChatMessage {
   role: 'user' | 'ai';
   content: string;
+  /** ai 消息的通道：result = 工具返回值（事实）；reply = 模型的话（对话） */
+  kind?: 'result' | 'reply';
+  /** 结果来源：db = SQL 直查；rag = 语义召回（向量检索） */
+  source?: 'db' | 'rag';
 }
 
 @Component({
@@ -54,18 +58,33 @@ export class Chat {
   private _handleResponse(res: any): void {
     const result = res?.data?.result;
 
+    // 需要用户确认：工具只提交了提案，真正的写操作在 /api/chat/confirm
     if (result?.need_confirm) {
       const ok = confirm(result.message || '确认执行此操作？');
       if (ok) {
-        this._doConfirm(result.action, result.target, result?.data??"");
+        this._doConfirm(result.action, result.target, result?.data ?? '');
       } else {
-        this._pushAi('已取消');
+        this._pushAi('已取消', 'reply');
       }
       return;
     }
 
-    const reply = this._formatReply(result, res?.message);
-    this._pushAi(reply);
+    // 商品名没对上：反问用户，不执行操作
+    if (result?.need_clarify) {
+      this._pushAi(result.message || '你要找的是哪个商品？', 'reply');
+      return;
+    }
+
+    // 事实通道：本次真的调用了工具，只渲染工具返回的内容
+    if (res?.data?.executed) {
+      const source = result?.is_rag ? 'rag' : 'db';
+      this._pushAi(this._formatResult(result, res?.message), 'result', source);
+      return;
+    }
+
+    // 对话通道：模型没有调用任何工具 → 本次没有任何数据库操作
+    const reply = res?.data?.reply || res?.message || '（无回复）';
+    this._pushAi(reply, 'reply');
   }
 
   private _doConfirm(action: string, target: string,data:any): void {
@@ -79,8 +98,9 @@ export class Chat {
     });
   }
 
-  private _pushAi(content: string): void {
-    this.messages.push({ role: 'ai', content });
+  private _pushAi(content: string, kind: 'result' | 'reply' = 'reply',
+                  source: 'db' | 'rag' = 'db'): void {
+    this.messages.push({ role: 'ai', content, kind, source });
     this.loading = false;
     this.cdr.detectChanges();
   }
@@ -107,19 +127,22 @@ export class Chat {
   this.cdr.detectChanges();
 }
 
-  private _formatReply(result: any, fallback: string): string {
+  /** 只负责渲染"工具返回值"——绝不渲染模型的话 */
+  private _formatResult(result: any, fallback: string): string {
   if (!result) return fallback ?? '（无回复）';
 
   const data = result.data;
 
   if (Array.isArray(data)) {
-    if (data.length === 0) return '未找到数据';
+    if (data.length === 0) return result.message || '未找到数据';
 
     const lines = data.map((item: any) => {
       // 商品类（有 name + price）
       if (item.name != null && item.price != null) {
         const stock = item.stock != null ? `  库存 ${item.stock}` : '';
-        return `· ${item.name}  ¥${item.price}${stock}`;
+        const line = `· ${item.name}  ¥${item.price}${stock}`;
+        // 推荐结果附带 reason（普通查询没有这个字段）
+        return item.reason ? `${line}\n  理由：${item.reason}` : line;
       }
 
       // 销售/进货记录（有 product_name + quantity）

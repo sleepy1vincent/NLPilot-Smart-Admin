@@ -45,6 +45,66 @@
   font-style: italic;
 }
 
+/* ============ 两个通道的区分 ============ */
+
+/* 对话通道：模型的话 + "未执行" 标记 */
+.reply-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 70%;
+}
+
+.reply-wrap .bubble {
+  max-width: 100%;
+}
+
+.tag {
+  font-size: 11px;
+  color: #999;
+  padding-left: 4px;
+  border-left: 2px solid #e0e0e0;
+}
+
+/* 事实通道：操作结果卡片（内容只来自工具返回值） */
+.result-card {
+  max-width: 78%;
+  border: 1px solid #d7e8d7;
+  border-radius: 12px;
+  background: #f6fbf6;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.result-head {
+  padding: 6px 14px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: #3d7d3d;
+  background: #eaf6ea;
+  border-bottom: 1px solid #d7e8d7;
+}
+
+/* 语义召回（向量检索）用另一个色系，让用户一眼看出结果来源 */
+.result-card.rag {
+  border-color: #d9d2ee;
+}
+.result-card.rag .result-head {
+  color: #5a48a8;
+  background: #f1edfb;
+  border-bottom-color: #d9d2ee;
+}
+
+.result-body {
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #26352b;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
 .input-row {
   display: flex;
   gap: 10px;

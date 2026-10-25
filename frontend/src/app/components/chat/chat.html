@@ -1,8 +1,22 @@
 <div class="chat">
   <div class="messages">
     @for (m of messages; track $index) {
-      <div class="msg" [class.user]="m.role === 'user'">
-        <span class="bubble">{{ m.content }}</span>
+      <div class="msg" [class.user]="m.role === 'user'" [class.result]="m.kind === 'result'">
+        @if (m.kind === 'result') {
+          <div class="result-card" [class.rag]="m.source === 'rag'">
+            <div class="result-head">
+              {{ m.source === 'rag' ? '操作结果 · 语义召回（向量检索）' : '操作结果 · 来自数据库' }}
+            </div>
+            <div class="result-body">{{ m.content }}</div>
+          </div>
+        } @else {
+          <div class="reply-wrap">
+            <span class="bubble">{{ m.content }}</span>
+            @if (m.role === 'ai') {
+              <span class="tag">对话回复 · 本次未执行数据库操作</span>
+            }
+          </div>
+        }
       </div>
     }
     @if (loading) {

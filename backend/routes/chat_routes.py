@@ -1,9 +1,8 @@
 from flask import Blueprint, request
-from services import nlu_service, product_service, rag_services
+from services import nlu_service, product_service, rag_services, guard_service
 from response import success, error
 from dao import product_dao
 bp = Blueprint("chat", __name__, url_prefix="/api")
-SAFE_HINTS = ["你好", "谢谢", "是什么", "多少钱", "几个", "有哪些", "查询", "查一下", "看看", "情况", "统计", "记录吗"]
 @bp.route("/chat", methods=["POST"])
 def chat():
     body = request.get_json(silent=True) or {}
@@ -13,20 +12,43 @@ def chat():
         return error("message 不能为空", code=400)
 
     call = nlu_service.recognize(msg, history=history)
-    result = product_service.handle(call)
-    if call.get("is_txt") and not call.get("tool"):
-        if any(h in msg for h in SAFE_HINTS):
-            return success(data={"call": call, "result": {
-                "ok": True, "message": call.get("message", ""),
-            }}, message=call.get("message", ""))
-            # 其余一律明确告知"未执行"
-        return success(data={"call": call, "result": {
-            "ok": False,
-            "message": "我没能理解你的操作意图，请换一种说法重试（未执行任何操作）",
-        }}, message="未能执行")
+    decision = guard_service.inspect(call)
+    if decision["executed"]:
+        result = product_service.handle(call)
+
+        # 商品名没对上 → 只是反问，什么都没执行
+        if result.get("need_clarify"):
+            return success(
+                data={
+                    "call": call,
+                    "result": {**result, "kind": "none", "executed": False},
+                    "reply": result.get("message", ""),
+                    "executed": False,
+                },
+                message=result.get("message", ""),
+            )
+
+        result.setdefault("kind", "tool")
+        return success(
+            data={
+                "call": call,
+                "result": result,
+                "reply": "",
+                "executed": True,
+            },
+            message=result.get("message", ""),
+        )
+    reply = call.get("message") or call.get("reply") or ""
+    if not reply:
+        reply = "AI 未能处理这次请求，请重试。"
     return success(
-        data={"call": call, "result": result},
-        message=result.get("message", ""),
+        data={
+            "call": call,
+            "result": {"ok": False, "kind": "none", "executed": False},
+            "reply": reply,
+            "executed": False,
+        },
+        message=reply,
     )
 @bp.route("/chat/confirm", methods=["POST"])
 def chat_confirm():
@@ -43,6 +65,8 @@ def chat_confirm():
         if not product:
             return error(f"商品 {target} 不存在", code=404)
         rows = product_dao.delete_product(target)
+        if rows == 0:
+            return error(f"{target} 删除失败（可能已被删除）", code=409)
         try:
             rag_services.delete_products([product["id"]])
         except Exception as e:
@@ -50,5 +74,8 @@ def chat_confirm():
         return success(data={"affected": rows}, message=f"已删除：{target}")
     if action=="discount" and isinstance(data,int|float) and not isinstance(data,bool):
         rows=product_dao.update_product(target,{"price":data})
+        if rows == 0:
+            return success(data={"affected": 0},
+                           message=f"{target} 的价格已经是 {data}，未做修改")
         return success(data={"affected":rows},message=f"已更改{target}价格为{data}")
     return error(f"不支持的确认操作：{action}", code=400)

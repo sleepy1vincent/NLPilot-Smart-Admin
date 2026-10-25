@@ -5,7 +5,7 @@ import { Product, ApiResponse, ProductCreate, ProductUpdate } from '../models/pr
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
-  private base = 'http://localhost:5000/api';
+  private base = 'http://localhost:5001/api';
 
   constructor(private http: HttpClient) {}
 

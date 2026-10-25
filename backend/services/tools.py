@@ -1,20 +1,219 @@
+import re
+
 from db import Transaction
 from dao import product_dao, purchases_dao, sales_dao
 from services import rag_services, enrich_services
 
 DISTANCE_THRESHOLD =0.53
+
+
+def _to_float(v):
+    """模型常把数字传成字符串（如 "500"、"¥500"、"500元"），这里统一转成 float。"""
+    if v is None or v == "":
+        return None
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    # 去掉货币符号、千分位、"元/块"等单位，只留数字和小数点
+    s = re.sub(r"[^\d.\-]", "", str(v).replace(",", "").replace("，", ""))
+    try:
+        return float(s) if s else None
+    except ValueError:
+        return None
+def _to_bool(v):
+    """模型常把布尔传成字符串（如 "true"、"是"、"有"）。"""
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return False
+    return str(v).strip().lower() in ("1", "true", "yes", "y", "是", "有")
 # ============ CRUD ============
-def query_products(name: str = "") -> dict:
-    """查询商品。传 name 模糊查询，不传则查全部。"""
-    rows = product_dao.query_products(name if name else None)
-    if not rows and name:
+def query_products(name: str | None = None, category: str | None = None,
+                   max_price: float | None = None, min_price: float | None = None,
+                   in_stock: bool | None = None, sort: str | None = None) -> dict:
+    """查询商品。支持按名字、品类、价格区间、是否有货组合筛选，用户没给条件时返回全部。
+
+    使用场景（重要）：
+      "有哪些手机"          -> category="手机"
+      "500 元以内有什么"    -> max_price=500
+      "500 以内还有货的"    -> max_price=500, in_stock=true
+      "最便宜的配件"        -> category="配件", sort="price_asc"
+      "库存最多的"          -> sort="stock_desc"
+      "查 iPhone15"         -> name="iPhone15"
+
+    【禁止】不要把价格、品类、库存等筛选条件写进 name 参数。
+      name 只放商品名关键词；价格用 max_price/min_price，品类用 category。
+      例：用户说"500 块以内送什么好"，应传 max_price=500，而不是 name="500块以内"。
+
+    查不到时如实说明，不要编造商品。
+
+    Args:
+      name: 商品名关键词，模糊匹配。仅当用户明确提到商品名（如 iPhone15、AirPodsPro）时使用
+      category: 品类，可选值：手机 / 耳机 / 电脑 / 平板 / 穿戴 / 显示器 / 配件
+      max_price: 价格上限（元），用户说"500 以内""不超过 300"时使用
+      min_price: 价格下限（元），用户说"至少 1000""1000 以上"时使用
+      in_stock: 传 true 表示只返回还有库存的商品，用户说"有货的"时使用
+      sort: 排序方式，可选：price_asc（便宜在前）/ price_desc（贵在前）/ stock_desc（库存多在前）
+    """
+    name = (name or "").strip()
+    category = (category or "").strip()
+    max_price = _to_float(max_price)
+    min_price = _to_float(min_price)
+    want_stock = _to_bool(in_stock)
+    sort = (sort or "").strip() or None
+    if sort not in ("price_asc", "price_desc", "stock_asc", "stock_desc"):
+        sort = None
+
+    has_filter = bool(category or max_price is not None or min_price is not None
+                      or want_stock or sort)
+
+    if has_filter:
+        rows = product_dao.query_products_filtered(
+            name=name or None,
+            category=category or None,
+            max_price=max_price,
+            min_price=min_price,
+            in_stock=want_stock,
+            sort=sort,
+        )
+        if not rows:
+            return {"ok": True, "count": 0, "data": [], "is_rag": False,
+                    "message": "没有找到符合条件的商品"}
+        return {"ok": True, "count": len(rows), "data": rows, "is_rag": False}
+
+    rows = product_dao.query_products(name or None)
+    if rows:
+        return {"ok": True, "count": len(rows), "data": rows, "is_rag": False}
+    # 如果数据库查询不到，则尝试rag查询
+    if name:
         hits = rag_services.search_products(name, top_k=3)
         hits = [(int(i), d) for i, d in hits if d <= DISTANCE_THRESHOLD]
         if hits:
             rows = product_dao.get_by_ids([i for i, _ in hits])
             if rows:
                 return {"ok": True, "count": len(rows), "data": rows, "is_rag": True}
+
     return {"ok": True, "count": len(rows), "data": rows, "is_rag": False}
+
+# 只保留"离最优不远"的候选（相对阈值）。比绝对阈值可靠：距离分布随语料变化，
+# 但"和第一名差多少"是稳定的尺度。
+RECOMMEND_MARGIN = 0.08
+# 连最优候选都太远 → 说明库里没有贴合的，如实说没有，不硬推。
+# 实测标定：库里"有对应商品"的最优距离 0.310~0.518，"没有"的是 0.580~0.623，
+# 间隙在 0.518~0.580，取中间值 0.55（两侧都留余量）。
+RECOMMEND_MAX_DISTANCE = 0.55
+
+
+def recommend_products(occasion: str | None = None, budget: float | None = None,
+                       top_k: int | None = None) -> dict:
+    """根据用途 / 受众 / 预算推荐几个商品。用户说"推荐""送人""适合什么""有什么好""帮我挑"时用它。
+
+    内部流程：语义宽召回候选 → 按预算和库存硬过滤 → 按贴合度排序 → 取前 N 个并附推荐理由。
+    每个结果带 reason 字段。
+
+    使用场景：
+      "推荐个送女朋友的礼物"   -> occasion="送女朋友"
+      "有什么适合学生党的"     -> occasion="学生党"
+      "500 以内送什么好"      -> occasion="送礼", budget=500
+      "推荐个降噪耳机"         -> occasion="降噪耳机"
+
+    【禁止】不要用 query_products 代替本工具；不要把用途写进 budget，也不要把预算写进 occasion。
+
+    Args:
+      occasion: 用途、受众或需求，直接用用户原话里的关键词，如"送女朋友""学生党""办公""降噪""旅行"
+      budget: 预算上限（元），用户说"500 以内""不超过 300"时使用
+      top_k: 推荐几个，默认 3，取值 1-5
+    """
+    occasion = (occasion or "").strip()
+    budget = _to_float(budget)
+    try:
+        top_k = int(top_k)
+    except (TypeError, ValueError):
+        top_k = 3
+    top_k = max(1, min(top_k, 5))
+
+    # 商品（按语义召回的 id 回查）
+    rows = []
+    # 向量距离：id -> distance
+    dist = {}
+    if occasion:
+        try:
+            hits = rag_services.search_products(occasion, top_k=10)
+            dist = {int(i): float(d) for i, d in hits}
+            if dist:
+                rows = product_dao.get_by_ids(list(dist.keys()))
+        except Exception as ex:
+            print(f"[推荐] 语义召回失败: {ex}")
+            dist, rows = {}, []
+
+        # 给了用途却拿不到任何语义候选 → 如实报错，绝不退回全量凑数
+        if not dist:
+            return {"ok": False, "count": 0, "data": [], "is_rag": False,
+                    "message": "语义检索暂时不可用，没法按用途推荐。"
+                               "可以先用「有哪些商品」看看库存。"}
+    else:
+        # 没给用途（例如只说"500 以内有什么"）→ 才允许在全部商品里按预算挑
+        rows = product_dao.query_products()
+
+    if occasion and dist:
+        # 只保留"库里真实存在"的召回结果。索引可能残留已删除商品的向量（幽灵），
+        # 若让幽灵参与，它会以极小的距离主导阈值，真实商品全被判"太远"。
+        real = {r["id"]: dist[r["id"]] for r in rows if r.get("id") in dist}
+        if not real:
+            return {"ok": False, "count": 0, "data": [], "is_rag": True,
+                    "message": f"库里的商品和「{occasion}」都对不上"}
+
+        # 锚点 = 最接近的真实商品（**不看预算**）。
+        # 若用"买得起的里面最好的"当锚，标准会被悄悄放松，
+        # 把明显更不相关的商品也当成"符合"。
+        anchor = min(real.values())
+        if anchor > RECOMMEND_MAX_DISTANCE:
+            return {"ok": False, "count": 0, "data": [], "is_rag": True,
+                    "message": f"库里没有适合「{occasion}」的商品（最接近的也差得远）"}
+
+        # 第一遍：相关性——只留和最优差不多近的
+        cutoff = anchor + RECOMMEND_MARGIN
+        rows = [r for r in rows if real.get(r["id"], float("inf")) <= cutoff]
+
+    # 第二遍：硬约束——买得起吗、有货吗
+    if budget is not None:
+        rows = [r for r in rows
+                if _to_float(r.get("price")) is not None
+                and _to_float(r.get("price")) <= budget]
+    rows = [r for r in rows if (r.get("stock") or 0) > 0]
+
+    if not rows:
+        if occasion and dist:
+            return {"ok": False, "count": 0, "data": [], "is_rag": True,
+                    "message": f"有和「{occasion}」很接近的商品，但都不符合当前的预算或库存条件"}
+        cond = []
+        if occasion:
+            cond.append(f"用途「{occasion}」")
+        if budget is not None:
+            cond.append(f"预算 {budget:g} 元")
+        return {"ok": False, "count": 0, "data": [], "is_rag": bool(dist),
+                "message": "没有找到符合条件的商品（" + "、".join(cond or ["当前条件"]) + "）"}
+
+    shown = occasion if len(occasion) <= 12 else occasion[:12] + "…"
+    if occasion and dist:
+        rows.sort(key=lambda r: dist.get(r["id"], float("inf")))
+
+    picked = rows[:top_k]
+
+    # 附推荐理由（取自描述，不额外调模型）
+    for r in picked:
+        desc = (r.get("description") or "").strip()
+        r["reason"] = desc[:40] if desc else (r.get("tags") or "")
+
+    if occasion and len(picked) < top_k:
+        message = f"库里符合「{shown}」的只有 {len(picked)} 个，都已列出"
+    else:
+        message = f"为你挑了 {len(picked)} 个" + (f"（{shown}）" if occasion else "")
+
+    return {"ok": True, "count": len(picked), "data": picked, "is_rag": bool(dist),
+            "message": message}
+
 def create_product(name: str, price: float = 0, stock: int = 0) -> dict:
     """新增商品。如果用户没给价格或库存，你要自己生成合理值。"""
     name = (name or "").replace(" ", "").strip()
@@ -83,13 +282,12 @@ def apply_discount(name:str,rate:float)->dict:
     name = (name or "").replace(" ", "").strip()
     if rate<=0 or rate>=1:
         return {"ok":False,"message":"打折倍数不正确"}
-    product =product_dao.get_by_name(name)
-    if not product :
-        return {"ok":False,"message":"打折的商品不存在",}
-    else:
-        return {"ok":True,"need_confirm":True,"action":"discount","target":name,
-                "message":f"将要进行打折的商品：{name},价格将变成{float(product["price"])*rate}确定吗?",
-                "data":float(product["price"])*rate}
+    product = product_dao.get_by_name(name)
+    if not product:
+        return {"ok":False,"message":"打折的商品不存在"}
+    return {"ok":True,"need_confirm":True,"action":"discount","target":name,
+            "message":f"将要进行打折的商品：{name},价格将变成{float(product['price'])*rate}确定吗?",
+            "data":float(product['price'])*rate}
 # =========== sale ===============
 def record_sale(product_name: str, quantity: int, unit_price: float = None) -> dict:
     """
@@ -236,7 +434,7 @@ def record_purchase(product_name: str, quantity: int, unit_price: float = None) 
     try:
         with Transaction() as conn:
             with conn.cursor() as cur:
-                # 1) 读库存并加行锁
+                # 读库存并加行锁
                 cur.execute(
                     "SELECT id, name, price, stock FROM product_lists "
                     "WHERE name=%s FOR UPDATE",
@@ -295,6 +493,7 @@ def query_purchases(name: str = None, days: int = None) -> dict:
 TOOL_FUNCTIONS = {
     # 商品
     "query_products": query_products,
+    "recommend_products": recommend_products,
     "create_product": create_product,
     "update_product": update_product,
     "delete_product": delete_product,

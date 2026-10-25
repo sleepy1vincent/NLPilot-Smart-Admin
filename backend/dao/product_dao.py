@@ -1,4 +1,54 @@
 from db import get_conn
+
+# 排序白名单：只允许这些固定值，绝不把用户输入拼进 SQL
+_SORT_MAP = {
+    "price_asc": "price ASC",
+    "price_desc": "price DESC",
+    "stock_asc": "stock ASC",
+    "stock_desc": "stock DESC",
+}
+def query_products_filtered(name=None, category=None, max_price=None,
+                            min_price=None, in_stock=False, sort=None, limit=50):
+    """
+    带结构化条件的查询（品类 / 价格区间 / 是否有货 / 排序）。
+    与 query_products 的区别：
+      - query_products 只按名字模糊查
+      - 本函数支持组合条件，用于"有哪些耳机""500 以内""有货的"这类需求、
+    category 用 LIKE 而不是 =：
+      因为库里的 category 是 LLM 打的自由值，存在 "手机/手表" 这种复合值，
+      用 = 会漏掉它。等 category 归一化后可以改成精确匹配。
+    """
+    sql = ("SELECT id, name, price, stock, category, tags, description, last_update "
+           "FROM product_lists WHERE 1=1")
+    args = []
+
+    if name:
+        sql += " AND name LIKE %s"
+        args.append(f"%{name}%")
+    if category:
+        sql += " AND category LIKE %s"
+        args.append(f"%{category}%")
+    if max_price is not None:
+        sql += " AND price <= %s"
+        args.append(max_price)
+    if min_price is not None:
+        sql += " AND price >= %s"
+        args.append(min_price)
+    if in_stock:
+        sql += " AND stock > 0"
+
+    sql += " ORDER BY " + _SORT_MAP.get(sort or "", "id ASC") + " LIMIT %s"
+    args.append(int(limit))
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, args)
+            return cur.fetchall()
+    finally:
+        conn.close()
+
+
 def query_products(name=None):
     """模糊查询"""
     conn = get_conn()
@@ -47,7 +97,6 @@ def insert_product(name, price, stock):
 def update_product(name, fields, conn=None):
     """
     更新商品的价格/库存，返回受影响行数。
-
     事务边界由调用方决定：
       - 不传 conn：自己开连接、自己 commit
       - 传了 conn：在调用方的连接上执行，【不 commit、不 close】

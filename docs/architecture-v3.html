@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="generator" content="archify 3.0.1">
   <meta name="archify-reader-contract" content="declared-wide-v1">
-  <title>NLPilot 智能商品管理系统 · v3.0 架构全景</title>
+  <title>NLPilot 智能商品管理系统 · v3.1 架构全景</title>
   <script>
     // Resolve the theme before first paint so light-preference users don't
     // see a dark flash. The toolbar script below re-applies with UI state.
@@ -4978,7 +4978,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
            data-preset-badge-blueprint="蓝图 / 修订 01"
            data-preset-badge-editorial="编辑风格 / 现场笔记">
         <div class="pulse-dot"></div>
-        <h1>NLPilot 智能商品管理系统 · v3.0 架构全景</h1>
+        <h1>NLPilot 智能商品管理系统 · v3.1 架构全景</h1>
       </div>
     </div>
 
@@ -4988,7 +4988,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     <div class="diagram-container" data-detail-level="read"
          data-preset-badge-editorial-plate="ARCHIFY / 图版 04">
       <svg viewBox="0 0 820 930" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase" data-reader-fit="intrinsic-height" data-reader-min-text="7.5" data-reader-primary-text="14">
-        <title id="archify-diagram-title">NLPilot 智能商品管理系统 · v3.0 架构全景</title>
+        <title id="archify-diagram-title">NLPilot 智能商品管理系统 · v3.1 架构全景</title>
         <desc id="archify-diagram-description">由 Archify 生成的架构图。</desc>
         <!-- Definitions -->
         <defs>
@@ -5035,7 +5035,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </g>
         <g data-graph-role="automatic-crossover" style="--step:5">
           <path data-graph-role="automatic-crossover-underlay" d="M 400 526 L 482 526 Q 490 526 490 534 L 490 605 Q 490 613 498 613 L 580 613" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="services" data-edge-to="chroma" data-edge-label="语义召回" data-edge-key="5" data-edge-id="services-chroma" data-composition-points="400,526;490,526;490,613;580,613" data-composition-crossover="halo" data-composition-independent="true" d="M 400 526 L 482 526 Q 490 526 490 534 L 490 605 Q 490 613 498 613 L 580 613" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-edge-from="services" data-edge-to="chroma" data-edge-label="语义兜底 / 推荐召回" data-edge-key="5" data-edge-id="services-chroma" data-composition-points="400,526;490,526;490,613;580,613" data-composition-crossover="halo" data-composition-independent="true" d="M 400 526 L 482 526 Q 490 526 490 534 L 490 605 Q 490 613 498 613 L 580 613" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:6">
           <path data-graph-role="automatic-crossover-underlay" d="M 300 563 L 300 635" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -5073,26 +5073,26 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="context" x="300" y="225" class="t-muted" font-size="9" text-anchor="middle">对话 / 商品 / 销售 / 进货 四页</text>
         </g>
 
-        <g id="node-routes" data-node-id="routes" data-node-label="Flask 路由层" tabindex="0" role="button" aria-label="聚焦Flask 路由层，11 个接口 · 端口 5000, Flask 后端（单进程）" aria-pressed="false" data-node-kind="backend" data-node-sublabel="11 个接口 · 端口 5000" data-node-context="Flask 后端（单进程）">
-          <title>Flask 路由层 · 11 个接口 · 端口 5000 · Flask 后端（单进程）</title>
+        <g id="node-routes" data-node-id="routes" data-node-label="Flask 路由层" tabindex="0" role="button" aria-label="聚焦Flask 路由层，11 个接口 · 端口 5001, Flask 后端（单进程）" aria-pressed="false" data-node-kind="backend" data-node-sublabel="11 个接口 · 端口 5001" data-node-context="Flask 后端（单进程）">
+          <title>Flask 路由层 · 11 个接口 · 端口 5001 · Flask 后端（单进程）</title>
           <rect x="200" y="320" width="200" height="84" rx="6" class="c-mask"/>
           <rect x="200" y="320" width="200" height="84" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(206 326) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="300" y="360" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Flask 路由层</text>
-        <text data-detail="context" x="300" y="376" class="t-muted" font-size="9" text-anchor="middle">11 个接口 · 端口 5000</text>
+        <text data-detail="context" x="300" y="376" class="t-muted" font-size="9" text-anchor="middle">11 个接口 · 端口 5001</text>
         </g>
 
-        <g id="node-services" data-node-id="services" data-node-label="服务层" tabindex="0" role="button" aria-label="聚焦服务层，意图识别 · 10 个工具 · RAG · 打标, Flask 后端（单进程）" aria-pressed="false" data-node-kind="backend" data-node-sublabel="意图识别 · 10 个工具 · RAG · 打标" data-node-context="Flask 后端（单进程）">
-          <title>服务层 · 意图识别 · 10 个工具 · RAG · 打标 · Flask 后端（单进程）</title>
+        <g id="node-services" data-node-id="services" data-node-label="服务层" tabindex="0" role="button" aria-label="聚焦服务层，意图识别 · 11 个工具 · RAG · 打标, Flask 后端（单进程）" aria-pressed="false" data-node-kind="backend" data-node-sublabel="意图识别 · 11 个工具 · RAG · 打标" data-node-context="Flask 后端（单进程）">
+          <title>服务层 · 意图识别 · 11 个工具 · RAG · 打标 · Flask 后端（单进程）</title>
           <rect x="200" y="475" width="200" height="88" rx="6" class="c-mask"/>
           <rect x="200" y="475" width="200" height="88" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(206 481) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="300" y="517" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">服务层</text>
-        <text data-detail="context" x="300" y="533" class="t-muted" font-size="9" text-anchor="middle">意图识别 · 10 个工具 · RAG · 打标</text>
+        <text data-detail="context" x="300" y="533" class="t-muted" font-size="9" text-anchor="middle">意图识别 · 11 个工具 · RAG · 打标</text>
         </g>
 
         <g id="node-dao" data-node-id="dao" data-node-label="数据访问层" tabindex="0" role="button" aria-label="聚焦数据访问层，DAO · 连接池 · Transaction, Flask 后端（单进程）" aria-pressed="false" data-node-kind="backend" data-node-sublabel="DAO · 连接池 · Transaction" data-node-context="Flask 后端（单进程）">
@@ -5163,9 +5163,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="449" y="475" width="82" height="14" rx="3" class="c-mask"/>
           <text x="490" y="485" class="t-edge-default" font-size="8" text-anchor="middle">工具调用 / 嵌入</text>
         </g>
-        <g data-detail="context" data-edge-from="services" data-edge-to="chroma" data-edge-label="语义召回" data-edge-key="5" data-edge-id="services-chroma">
-          <rect x="465.8" y="549.5" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="490" y="559.5" class="t-edge-default" font-size="8" text-anchor="middle">语义召回</text>
+        <g data-detail="context" data-edge-from="services" data-edge-to="chroma" data-edge-label="语义兜底 / 推荐召回" data-edge-key="5" data-edge-id="services-chroma">
+          <rect x="439.4" y="549.5" width="101.2" height="14" rx="3" class="c-mask"/>
+          <text x="490" y="559.5" class="t-edge-default" font-size="8" text-anchor="middle">语义兜底 / 推荐召回</text>
         </g>
         <g data-detail="context" data-edge-from="services" data-edge-to="dao" data-edge-label="事务读写" data-edge-key="6" data-edge-id="services-dao">
           <rect x="191.8" y="567" width="48.4" height="14" rx="3" class="c-mask"/>
@@ -5396,9 +5396,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <h3>AI 与工具</h3>
         </div>
         <ul>
-          <li>qwen2.5:7b 用 Function Calling 选出工具与参数</li>
-          <li>10 个工具集中在 TOOL_FUNCTIONS 注册表</li>
-          <li>3 次重试 + tool_call 泄漏检测 + 幻觉守卫</li>
+          <li>qwen2.5:7b 用 Function Calling 选出工具与参数（11 个工具）</li>
+          <li>工具描述写明使用场景与「不要把条件塞进 name」</li>
+          <li>3 次重试 + tool_call 泄漏检测</li>
         </ul>
       </div>
 
@@ -5417,24 +5417,24 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <div class="card">
         <div class="card-header">
           <div class="card-dot amber"></div>
-          <h3>RAG 链路</h3>
+          <h3>RAG 只负责两件事</h3>
         </div>
         <ul>
-          <li>写入：新增商品 → LLM 打标（品类/标签/描述）→ 拼接文档 → bge-m3 → Chroma</li>
-          <li>读取：SQL 查空 → 向量召回 top3 → 阈值 0.53 过滤 → 回查 MySQL 取价格库存</li>
-          <li>实测：场景词 6/7 命中，无关查询 4/4 被拦截</li>
+          <li>写入：新增商品 → LLM 打标 → 拼接文档 → bge-m3 → Chroma</li>
+          <li>① 语义查询兜底：SQL 查空才向量召回，阈值 0.53</li>
+          <li>② 推荐候选：向量召回 → 相对阈值 best+0.08 → 预算/库存过滤</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot rose"></div>
-          <h3>数据质量</h3>
+          <h3>幻觉防护：通道分离</h3>
         </div>
         <ul>
-          <li>启动自检：报告缺描述商品数，不阻塞启动</li>
-          <li>/api/health 暴露 products / with_description / vectors</li>
-          <li>批量补标：scripts/auto_tag.py（同步 MySQL 与向量库）</li>
+          <li>副作用只走工具；结果只由工具返回值陈述</li>
+          <li>响应拆 result（事实）/ reply（对话）两个通道</li>
+          <li>前端分别渲染为结果卡片与带「未执行」标记的气泡</li>
         </ul>
       </div>
     </div>
