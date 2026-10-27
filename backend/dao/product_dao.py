@@ -21,7 +21,7 @@ def query_products_filtered(name=None, category=None, max_price=None,
     sql = ("SELECT id, name, price, stock, category, tags, description, last_update "
            "FROM product_lists WHERE 1=1")
     args = []
-
+    #名字有限制
     if name:
         sql += " AND name LIKE %s"
         args.append(f"%{name}%")
@@ -47,8 +47,6 @@ def query_products_filtered(name=None, category=None, max_price=None,
             return cur.fetchall()
     finally:
         conn.close()
-
-
 def query_products(name=None):
     """模糊查询"""
     conn = get_conn()

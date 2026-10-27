@@ -1,3 +1,35 @@
+"""工具层：11 个可被模型调用的函数。这是"能改变世界"的唯一入口。
+
+返回协议（所有工具统一）
+------------------------
+查询类
+    {"ok": True, "count": N, "data": [...], "is_rag": bool}
+        is_rag=True 表示结果来自向量检索（不是 SQL）
+
+推荐类
+    {"ok": True, "count": N, "data": [{..., "reason": "推荐理由"}]}
+
+变更类（真实写库）
+    {"ok": True, "affected": N, "message": "..."}
+    {"ok": True, "id": 12, ...}            新增
+    {"ok": True, "sale_id": 33, "new_stock": 95}      销售
+    {"ok": True, "purchase_id": 8, "new_stock": 60}   进货
+    {"ok": True, "affected": 0, "message": "...没有变化"}   值相同（不算成功变更）
+
+提案类（**不写库**，等前端二次确认）
+    {"ok": True, "need_confirm": True, "action": "delete|discount",
+     "target": "iPhone15", "message": "即将删除…确认吗？"}
+
+失败
+    {"ok": False, "message": "原因"}
+    {"ok": False, "message": "...", "candidates": [...], "hint": "..."}   可自我纠正的错误
+
+硬规则
+------
+  · 副作用只能在这里发生（agent 层不直接碰 DAO）
+  · 写操作必须走事务；扣库存前先 SELECT ... FOR UPDATE 加行锁
+  · `affected == 0` 一律不算成功（不能用"没变化"冒充"已修改"）
+"""
 import re
 
 from db import Transaction
@@ -31,7 +63,8 @@ def _to_bool(v):
 # ============ CRUD ============
 def query_products(name: str | None = None, category: str | None = None,
                    max_price: float | None = None, min_price: float | None = None,
-                   in_stock: bool | None = None, sort: str | None = None) -> dict:
+                   in_stock: bool | None = None, sort: str | None = None,
+                   top_k: int | None = None, nth: int | None = None) -> dict:
     """查询商品。支持按名字、品类、价格区间、是否有货组合筛选，用户没给条件时返回全部。
 
     使用场景（重要）：
@@ -41,6 +74,16 @@ def query_products(name: str | None = None, category: str | None = None,
       "最便宜的配件"        -> category="配件", sort="price_asc"
       "库存最多的"          -> sort="stock_desc"
       "查 iPhone15"         -> name="iPhone15"
+
+    【排序 / 第 N 个】
+      "最便宜的"        -> sort="price_asc", nth=1
+      "第三便宜的"      -> sort="price_asc", nth=3
+      "最贵的"          -> sort="price_desc", nth=1
+      "第二贵的"        -> sort="price_desc", nth=2
+      "库存最少的"      -> sort="stock_asc", nth=1
+      传了 nth 时，工具只返回第 N 名那一条，不会返回整个列表——
+      不需要你自己数，直接看返回的那条就是答案。
+      传了 sort 但不传 nth 时，返回列表每条带 rank，message 里也写好了名次。
 
     【禁止】不要把价格、品类、库存等筛选条件写进 name 参数。
       name 只放商品名关键词；价格用 max_price/min_price，品类用 category。
@@ -55,6 +98,9 @@ def query_products(name: str | None = None, category: str | None = None,
       min_price: 价格下限（元），用户说"至少 1000""1000 以上"时使用
       in_stock: 传 true 表示只返回还有库存的商品，用户说"有货的"时使用
       sort: 排序方式，可选：price_asc（便宜在前）/ price_desc（贵在前）/ stock_desc（库存多在前）
+      top_k: 只取前几个，不传时最多返回 50 条
+      nth: 只要第 N 名那一条（配合 sort 使用）。问"第二贵"就传 sort="price_desc", nth=2，
+           工具只返回那一条，不用自己数列表。
     """
     name = (name or "").strip()
     category = (category or "").strip()
@@ -64,6 +110,23 @@ def query_products(name: str | None = None, category: str | None = None,
     sort = (sort or "").strip() or None
     if sort not in ("price_asc", "price_desc", "stock_asc", "stock_desc"):
         sort = None
+
+    try:
+        limit = int(top_k) if top_k else 50
+    except (TypeError, ValueError):
+        limit = 50
+    limit = max(1, min(limit, 50))
+
+    # nth（第 N 名）：给了 nth 就必须有排序，否则"第几个"没有意义
+    try:
+        nth = int(nth) if nth else None
+    except (TypeError, ValueError):
+        nth = None
+    if nth is not None:
+        nth = max(1, nth)
+        if sort is None:
+            sort = "price_asc"      # 兜底：问"第 N"多半是问价格序
+        limit = 50                  # 要能取到第 N 个，先把完整列表拿回来
 
     has_filter = bool(category or max_price is not None or min_price is not None
                       or want_stock or sort)
@@ -76,15 +139,45 @@ def query_products(name: str | None = None, category: str | None = None,
             min_price=min_price,
             in_stock=want_stock,
             sort=sort,
+            limit=limit,
         )
         if not rows:
             return {"ok": True, "count": 0, "data": [], "is_rag": False,
                     "message": "没有找到符合条件的商品"}
+
+        # nth：直接由代码取第 N 名，只返回那一条 —— 不让模型数列表
+        if nth is not None:
+            if nth > len(rows):
+                return {"ok": True, "count": 0, "data": [], "is_rag": False,
+                        "message": f"符合条件的只有 {len(rows)} 个，没有第 {nth} 个"}
+            one = rows[nth - 1]
+            one["rank"] = nth
+            label = {"price_asc": "价格从低到高", "price_desc": "价格从高到低",
+                     "stock_asc": "库存从少到多", "stock_desc": "库存从多到少"}.get(sort, sort)
+            return {"ok": True, "count": 1, "data": [one], "is_rag": False,
+                    "sorted_by": sort,
+                    "message": f"按{label}排序，第{nth}名是 {one['name']}，¥{one['price']}"}
+
+        # 排序时给每条打上名次：模型数不清"第几个"，直接把 rank 交给它
+        if sort:
+            for i, r in enumerate(rows, 1):
+                r["rank"] = i
+            # 再把名次写成一句话——7B 对"从列表里数第 N 条"不可靠，
+            # 但"照抄一句话"很可靠。两种形式都给，总有一个能用上。
+            label = {"price_asc": "价格从低到高", "price_desc": "价格从高到低",
+                     "stock_asc": "库存从少到多", "stock_desc": "库存从多到少"}.get(sort, sort)
+            head = "；".join(
+                f"第{r['rank']}名 {r['name']} ¥{r['price']}" for r in rows[:5]
+            )
+            more = f"…（共 {len(rows)} 条）" if len(rows) > 5 else ""
+            return {"ok": True, "count": len(rows), "data": rows, "is_rag": False,
+                    "sorted_by": sort,
+                    "message": f"按{label}排序：{head}{more}"}
         return {"ok": True, "count": len(rows), "data": rows, "is_rag": False}
 
     rows = product_dao.query_products(name or None)
     if rows:
-        return {"ok": True, "count": len(rows), "data": rows, "is_rag": False}
+        return {"ok": True, "count": len(rows), "data": rows[:limit], "is_rag": False}
     # 如果数据库查询不到，则尝试rag查询
     if name:
         hits = rag_services.search_products(name, top_k=3)
@@ -380,12 +473,18 @@ def query_sales(name: str = None, days: int = None) -> dict:
     }
 def sales_report(name: str = None, days: int = 7) -> dict:
     """
-    销售报告 / 销售统计。
-    使用场景：用户说"销售情况"、"卖了多少钱"、"这周业绩"时使用。
+    销售报告 / 销售统计。**注意：这里只有"卖了多少"，没有"还剩多少"。**
+
+    使用场景：用户说"销售情况"、"卖了多少钱"、"这周业绩"、"卖得最好的是什么"时使用。
+
+    【重要】返回值里的 total_quantity 是**销量**，不是库存。
+    用户若问"还剩多少 / 库存多少"，必须另外用 query_products 查。
+    只用本工具的销量去回答库存问题 = 答错。
+
     参数：
         name: 商品名（可选，不传查全部）。
         days: 最近多少天（默认 7）。
-    返回：销售总件数、总金额、订单数。
+    返回：销量、销售额、订单数。
     """
     name = (name or "").replace(" ", "").strip()
     rows = sales_dao.get_sales(product_name=name, days=days)
@@ -394,12 +493,15 @@ def sales_report(name: str = None, days: int = 7) -> dict:
     return {
         "ok": True,
         "count": len(rows),
-        "total_quantity": total_qty,
+        # 字段名直接写明是"卖出的"，避免模型把它当库存
+        "sold_quantity": total_qty,
+        "total_quantity": total_qty,        # 兼容旧调用
         "total_amount": round(total_amount, 2),
         "data": rows[:20],       # 最多 20 条明细
         "message": (
-            f"最近 {days} 天：{len(rows)} 笔订单，"
-            f"共 {total_qty} 件，¥{round(total_amount, 2)}"
+            f"最近 {days} 天卖出 {total_qty} 件、{len(rows)} 笔订单，"
+            f"共 ¥{round(total_amount, 2)}。"
+            f"（这是销量，不含库存；查库存请用 query_products）"
         ),
     }
 # =========== purchases ===========

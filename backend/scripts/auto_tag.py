@@ -9,7 +9,6 @@ from services import enrich_services
 import dao.product_dao as product_dao
 import services.rag_services as rag_services
 
-
 def main():
     conn = get_conn()
     try:

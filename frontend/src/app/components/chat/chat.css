@@ -67,6 +67,12 @@
   border-left: 2px solid #e0e0e0;
 }
 
+/* 多步总结：它是模型的话，但依据的是上方真实的工具结果 */
+.tag.summary {
+  color: #4a6fa5;
+  border-left-color: #b9cbe6;
+}
+
 /* 事实通道：操作结果卡片（内容只来自工具返回值） */
 .result-card {
   max-width: 78%;
@@ -84,6 +90,13 @@
   color: #3d7d3d;
   background: #eaf6ea;
   border-bottom: 1px solid #d7e8d7;
+}
+
+/* 卡片头部右侧的"多步 · N 步" */
+.steps {
+  float: right;
+  font-size: 10px;
+  opacity: 0.7;
 }
 
 /* 语义召回（向量检索）用另一个色系，让用户一眼看出结果来源 */

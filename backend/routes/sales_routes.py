@@ -13,7 +13,6 @@ def get_sales():
     days=request.args.get("days",type=int)
     row=sales_dao.get_sales(product_name=name,days=days)
     return success(data=row,message=f"共{len(row)}条")
-
 @bp.route("sales",methods=["POST"])
 def add_sale():
     """
@@ -27,7 +26,6 @@ def add_sale():
     quantity = body.get("quantity")
     unit_price = body.get("unit_price")
 
-    # 只做"格式"校验，业务校验交给 record_sale
     if not (name or "").replace(" ", "").strip():
         return error("name 不能为空", code=400)
     if not isinstance(quantity, int) or isinstance(quantity,bool) or quantity <= 0:
@@ -49,7 +47,6 @@ def add_sale():
         data={"sale_id": result["sale_id"], "new_stock": result["new_stock"]},
         message=f"已记录销售：{name} × {quantity}",
     )
-
 @bp.route("/sales/summary", methods=["GET"])
 def sales_summary():
     """销量汇总，支持 ?name=xxx&days=30"""

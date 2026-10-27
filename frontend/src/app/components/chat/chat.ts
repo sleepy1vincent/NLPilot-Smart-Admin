@@ -9,6 +9,10 @@ interface ChatMessage {
   kind?: 'result' | 'reply';
   /** 结果来源：db = SQL 直查；rag = 语义召回（向量检索） */
   source?: 'db' | 'rag';
+  /** 这次请求走了几步（多步循环时有值） */
+  steps?: number;
+  /** 多步循环的"总结"：它是模型的话，但基于前面真实的工具结果 */
+  summary?: boolean;
 }
 
 @Component({
@@ -75,10 +79,18 @@ export class Chat {
       return;
     }
 
-    // 事实通道：本次真的调用了工具，只渲染工具返回的内容
+    // 事实通道：本次真的调用了工具 → 渲染工具返回的内容
     if (res?.data?.executed) {
       const source = result?.is_rag ? 'rag' : 'db';
-      this._pushAi(this._formatResult(result, res?.message), 'result', source);
+      const steps = (res?.data?.trace || []).length;
+      this._pushAi(this._formatResult(result, res?.message), 'result', source, steps);
+
+      // 多步循环：卡片之后还有模型的"总结"，两个通道同时展示
+      // （单步模式 reply 为空，这里不会触发）
+      const summary = (res?.data?.reply || '').trim();
+      if (summary) {
+        this._pushAi(summary, 'reply', 'db', steps, true);
+      }
       return;
     }
 
@@ -99,8 +111,8 @@ export class Chat {
   }
 
   private _pushAi(content: string, kind: 'result' | 'reply' = 'reply',
-                  source: 'db' | 'rag' = 'db'): void {
-    this.messages.push({ role: 'ai', content, kind, source });
+                  source: 'db' | 'rag' = 'db', steps = 0, summary = false): void {
+    this.messages.push({ role: 'ai', content, kind, source, steps, summary });
     this.loading = false;
     this.cdr.detectChanges();
   }

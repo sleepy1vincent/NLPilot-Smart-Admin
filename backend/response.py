@@ -1,3 +1,14 @@
+"""统一响应格式。HTTP 状态码 = 业务码，前端按状态码分类处理。
+
+返回协议
+--------
+成功（HTTP 200）
+    {"code": 200, "message": "success", "data": <任意>}
+
+失败（HTTP 400-599）
+    {"code": <HTTP 码>, "message": "原因", "data": null}
+    非法码降级为 400
+"""
 from flask import jsonify
 
 

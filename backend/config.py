@@ -14,3 +14,6 @@ class Config:
 
     PORT = int(os.getenv("FLASK_PORT", 5001))
     DEBUG = os.getenv("FLASK_DEBUG", "true").lower() == "true"
+    # 多步循环开关：默认关，稳定后再打开
+    CHAT_LOOP = os.getenv("CHAT_LOOP", "0") == "1"
+    CHAT_MAX_STEPS = int(os.getenv("CHAT_MAX_STEPS", 3))
