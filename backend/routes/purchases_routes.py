@@ -1,5 +1,5 @@
 from flask import Blueprint, request
-from response import success, error
+from response import success
 from dao import purchases_dao
 
 

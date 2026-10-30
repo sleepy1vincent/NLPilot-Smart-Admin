@@ -1,46 +1,100 @@
-<div class="chat">
-  <div class="messages">
-    @for (m of messages; track $index) {
-      <div class="msg" [class.user]="m.role === 'user'" [class.result]="m.kind === 'result'">
-        @if (m.kind === 'result') {
-          <div class="result-card" [class.rag]="m.source === 'rag'">
-            <div class="result-head">
-              {{ m.source === 'rag' ? '操作结果 · 语义召回（向量检索）' : '操作结果 · 来自数据库' }}
-              @if (m.steps && m.steps > 1) {
-                <span class="steps">多步 · {{ m.steps }} 步</span>
-              }
-            </div>
-            <div class="result-body">{{ m.content }}</div>
-          </div>
-        } @else {
-          <div class="reply-wrap">
-            <span class="bubble">{{ m.content }}</span>
-            @if (m.role === 'ai' && m.summary) {
-              <span class="tag summary">多步总结 · 依据上方工具结果</span>
-            } @else if (m.role === 'ai') {
-              <span class="tag">对话回复 · 本次未执行数据库操作</span>
-            }
-          </div>
-        }
+<div class="shell">
+  <!-- 侧边栏：会话列表 -->
+  <aside class="side">
+    <div class="side-head">
+      <div class="brand">
+        <span class="dot"></span>
+        NLPilot
       </div>
-    }
-    @if (loading) {
-      <div class="msg">
-        <span class="bubble typing">思考中…</span>
-      </div>
-    }
-  </div>
+      <button class="new-btn" (click)="newChat()" title="新建对话">＋</button>
+    </div>
 
-  <div class="input-row">
-    <textarea
-      [(ngModel)]="userInput"
-      (keydown)="onKey($event)"
-      placeholder="例如：查一下 iPhone 的库存,但请注意商品名出现的多余空格将被删去"
-      rows="2"
-      [disabled]="loading"
-    ></textarea>
-    <button (click)="send()" [disabled]="loading || !userInput.trim()">
-      发送
-    </button>
-  </div>
+    <div class="conv-list">
+      @for (c of conversations; track c.id) {
+        <div class="conv" [class.active]="c.id === conversationId" (click)="openChat(c.id)">
+          <div class="conv-title">{{ c.title }}</div>
+          <div class="conv-meta">{{ c.count }} 条 · {{ c.last_update.slice(5, 16) }}</div>
+          <button class="conv-del" (click)="removeChat($event, c.id)" title="删除">×</button>
+        </div>
+      }
+      @if (conversations.length === 0) {
+        <div class="side-empty">还没有对话<br /><span>在右侧说点什么吧</span></div>
+      }
+    </div>
+
+    <div class="side-foot">
+      <span>多步 Agent · 结果可核对</span>
+    </div>
+  </aside>
+
+  <!-- 主区 -->
+  <section class="main">
+    <header class="main-head">
+      <h1>{{ conversationId ? '对话 #' + conversationId : '新对话' }}</h1>
+      <p>查库存 · 推荐商品 · 改价格 · 记销售进货</p>
+    </header>
+
+    <div class="messages" #scroller>
+      @if (messages.length === 0) {
+        <div class="welcome">
+          <div class="welcome-icon">🛍️</div>
+          <h2>我能帮你管商品</h2>
+          <div class="chips">
+            <button class="chip" (click)="quick('查一下 iPhone15 的库存')">查一下 iPhone15 的库存</button>
+            <button class="chip" (click)="quick('500 以内送女朋友什么好')">500 以内送女朋友什么好</button>
+            <button class="chip" (click)="quick('最便宜的商品？')">最便宜的商品？</button>
+            <button class="chip" (click)="quick('卖了 2 个 AirPodsPro')">卖了 2 个 AirPodsPro</button>
+          </div>
+        </div>
+      }
+
+      @for (m of messages; track $index) {
+        <div class="row"
+             [class.row-user]="m.role === 'user'"
+             [class.row-system]="m.system">
+          @if (m.kind === 'result') {
+            <div class="card" [class.rag]="m.source === 'rag'">
+              <div class="card-head">
+                <span class="badge" [class.rag]="m.source === 'rag'">
+                  {{ m.source === 'rag' ? '语义召回' : '数据库' }}
+                </span>
+                <span class="card-title">{{ m.label || '操作结果' }}</span>
+              </div>
+              <div class="card-body">{{ m.content }}</div>
+            </div>
+          } @else if (m.role === 'user') {
+            <div class="bubble user">{{ m.content }}</div>
+          } @else {
+            <div class="bubble ai" [class.system]="m.system" [class.summary]="m.summary">
+              @if (m.summary) {
+                <div class="bubble-tag">多步总结 · 依据上方工具结果</div>
+              }
+              <span class="bubble-text">{{ m.content }}</span>
+            </div>
+          }
+        </div>
+      }
+
+      @if (loading) {
+        <div class="row">
+          <div class="bubble ai typing">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+      }
+    </div>
+
+    <div class="composer">
+      <textarea
+        [(ngModel)]="userInput"
+        (keydown)="onKey($event)"
+        placeholder="例如：查一下 iPhone15 的库存（Enter 发送，Shift+Enter 换行）"
+        rows="1"
+        [disabled]="loading"
+      ></textarea>
+      <button (click)="send()" [disabled]="loading || !userInput.trim()">
+        {{ loading ? '处理中' : '发送' }}
+      </button>
+    </div>
+  </section>
 </div>

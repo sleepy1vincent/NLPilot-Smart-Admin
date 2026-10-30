@@ -1,4 +1,4 @@
-"""Agent 评测集：把"我觉得挺准"变成可复现的数字
+"""Agent 评测集
 
 用法
 ----
@@ -107,7 +107,11 @@ def _check_args(args: dict, spec: dict):
 
 
 def _check_result(result: dict, spec: str):
-    n = result.get("count")
+    """看 data 的条数，不看 count —— count 只有查询类工具才有，
+    而 data 是所有"有结果"的工具共有的形状（写操作没有 data，自然算空）。
+    """
+    data = result.get("data")
+    n = len(data) if isinstance(data, list) else 0
     if spec == "empty":
         return (n == 0), f"期望 0 条，实际 {n} 条"
     if spec == "non_empty":
@@ -123,6 +127,25 @@ MULTI_CASES = [
     ("对比 iPhone15 和 AirPodsPro 的价格", 1, 3),
 ]
 
+# 复合结果用例：走多步时，**每一步的结果都必须留在 results 里**，不能只剩最后一次。
+#   (用户输入, 结果里必须同时出现的商品名)
+COMPOSITE_CASES = [
+    ("查 iPhone15 的库存，再查 AirPodsPro 的库存", ["iPhone15", "AirPodsPro"]),
+    ("查一下小米手环8 和 罗技鼠标M590 的库存", ["小米手环8", "罗技鼠标M590"]),
+]
+
+# 对话型用例：模型必须走 clarify / refuse，且**回复必须完全等于模板**
+# 判据很硬 —— 只要模型原文漏到界面上，这里立刻红。
+# 期望工具可以写多个：只要落在其中且不执行，就算通过（含糊输入允许两种反应）
+DIALOG_CASES = [
+    ("在吗", {"refuse"}),
+    ("你好", {"refuse"}),
+    ("讲个笑话", {"refuse"}),
+    ("今天天气怎么样", {"refuse"}),
+    ("帮我删了", {"clarify", "refuse"}),      # 没说删哪个：追问或拒绝都算合规
+    ("把价格改成 100", {"clarify", "refuse"}),  # 没说哪个商品
+]
+
 
 def main():
     try:
@@ -133,9 +156,17 @@ def main():
 
     import services.product_service as ps
     from config import Config
+    from dao import conversation_dao
 
-    # 报告实际运行模式——否则"评测通过"可能测的是旧路径
-    # 判据：配置开了 CHAT_LOOP，且 agent_service 里确实有 run_loop
+    #新建一个测试对话
+    tmp_conv = conversation_dao.create()
+    #封装发送文案
+    def _post(msg):
+        #清除上一问的记录
+        conversation_dao.clear_messages(tmp_conv)
+        return cli.post("/api/chat", json={"message": msg,
+                                           "conversation_id": tmp_conv})
+    #记录当前对话是否可调用
     loop_ready = False
     if Config.CHAT_LOOP:
         try:
@@ -167,6 +198,7 @@ def main():
     print("  " + "-" * 90)
 
     total = len(CASES)
+    #分别记录：工具调取正确、参数调用正确、成功调取参数次数、结果正确、结果得到次数
     tool_ok = param_ok = param_checked = result_ok = result_checked = 0
     failures = []
     t_all = 0.0
@@ -176,8 +208,11 @@ def main():
             msg, expect_tool, tag = case[0], case[1], case[2]
             spec = case[3] if len(case) > 3 else {}
             t0 = time.time()
-            d = cli.post("/api/chat", json={"message": msg}).get_json().get("data") or {}
+            #发送并且拿到返回
+            d = _post(msg).get_json().get("data") or {}
+            #计算时间间隔
             dt = time.time() - t0
+            #累计
             t_all += dt
 
             call = d.get("call") or {}
@@ -214,7 +249,7 @@ def main():
                 else:
                     note = f"未包含 {spec['result_any']}，实际 {names[:3]}"
                     failures.append((msg, f"结果：{note}"))
-
+            #不是期待的工具
             if not ok_tool:
                 failures.append((msg, f"工具：期望 {expect_tool}，实际 {got_tool}"))
 
@@ -227,7 +262,8 @@ def main():
     finally:
         ps.handle = orig_handle
 
-    # ---------- 多步用例（仅循环模式） ----------
+    #多步用例仅循环模式
+    #记录多次成功次数、测试次数
     multi_ok = multi_total = 0
     if loop_ready:
         print()
@@ -239,7 +275,7 @@ def main():
         for msg, lo, hi in MULTI_CASES:
             multi_total += 1
             t0 = time.time()
-            d = cli.post("/api/chat", json={"message": msg}).get_json().get("data") or {}
+            d = _post(msg).get_json().get("data") or {}
             dt = time.time() - t0
             trace = d.get("trace") or []
             n = len([t for t in trace if not t.get("skipped")])
@@ -249,8 +285,71 @@ def main():
             else:
                 failures.append((msg, f"多步：期望 {lo}~{hi} 步，实际 {n} 步，executed={d.get('executed')}"))
             print(f"  {msg[:28]:<30}{f'{lo}~{hi}':<12}{n:<10}{'✅' if good else '❌'}  {dt:.1f}s")
+
+        # ---------- 复合结果用例：每一步的数据都不能丢 ----------
+        print()
+        print("=" * 96)
+        print("复合结果用例（结果里必须包含每一步的数据）")
+        print("=" * 96)
+        print(f"  {'用户输入':<32}{'步数':<8}{'results':<10}{'结果'}")
+        print("  " + "-" * 90)
+        for msg, must_have in COMPOSITE_CASES:
+            multi_total += 1
+            d = _post(msg).get_json().get("data") or {}
+            trace = d.get("trace") or []
+            n_ok = len([t for t in trace if t.get("ok")])
+            results = d.get("results") or []
+            # 拿结果里出现的所有商品名
+            names = []
+            for row in results:
+                for it in ((row.get("result") or {}).get("data") or []):
+                    if isinstance(it, dict) and it.get("name"):
+                        names.append(it["name"])
+            # 两条判据：① 成功执行了几步就有几条 results ② 要求的商品都出现
+            good = (len(results) == n_ok) and all(m in names for m in must_have)
+            if good:
+                multi_ok += 1
+            else:
+                miss = [m for m in must_have if m not in names]
+                failures.append((msg, f"复合：results={len(results)} 成功步={n_ok}"
+                                      + (f"，缺 {miss}" if miss else "")))
+            print(f"  {msg[:30]:<32}{n_ok:<8}{len(results):<10}{'✅' if good else '❌'}")
     elif Config.CHAT_LOOP:
         print("\n  提示：CHAT_LOOP=1 但 agent_service.run_loop 不可用，多步用例跳过")
+
+    # ---------- 对话型用例（砍死自由对话之后必须全绿） ----------
+    from services import reply_templates as rt
+    allowed = set(rt.CLARIFY.values()) | set(rt.REFUSE.values()) | {rt.FALLBACK}
+    dialog_ok = 0
+    print()
+    print("=" * 96)
+    print("对话型用例（回复必须完全等于模板，不能有模型原文）")
+    print("=" * 96)
+    print(f"  {'用户输入':<20}{'期望':<10}{'实际工具':<12}{'结果'}")
+    print("  " + "-" * 90)
+    for msg, want_set in DIALOG_CASES:
+        d = _post(msg).get_json().get("data") or {}
+        tool = (d.get("call") or {}).get("tool")
+        reply = (d.get("reply") or "").strip()
+        # 两条合规路径：
+        #   ① 模型调 clarify/refuse → 回复是模板
+        #   ② 代码自己发现参数不对（need_clarify）→ 回复是 product_service 生成的话术
+        code_clarify = bool((d.get("result") or {}).get("need_clarify"))
+        no_model_text = (reply in allowed) or code_clarify
+        kind_ok = (tool in want_set) or code_clarify
+        good = no_model_text and kind_ok and d.get("executed") == 0
+        if good:
+            dialog_ok += 1
+        else:
+            why = []
+            if not no_model_text:
+                why.append(f"回复不是模板：{reply[:40]!r}")
+            if not kind_ok:
+                why.append(f"期望 {'/'.join(sorted(want_set))}，实际 {tool}")
+            if d.get("executed"):
+                why.append(f"executed={d.get('executed')}，不该执行")
+            failures.append((msg, "对话型：" + "；".join(why)))
+        print(f"  {msg[:18]:<20}{'/'.join(sorted(want_set)):<10}{str(tool):<12}{'✅' if good else '❌'}")
 
     print()
     print("=" * 96)
@@ -264,6 +363,7 @@ def main():
         print(f"  结果符合预期  {result_ok}/{result_checked} = {result_ok/result_checked*100:.0f}%")
     if multi_total:
         print(f"  多步任务      {multi_ok}/{multi_total}")
+    print(f"  对话型        {dialog_ok}/{len(DIALOG_CASES)}  （回复全部来自模板）")
     print(f"  平均耗时      {t_all/total:.2f}s / 次")
     if not LIVE:
         print(f"  （dry-run 拦截了 {len(calls)} 次写操作：{sorted({c[0] for c in calls})}）")
@@ -277,10 +377,19 @@ def main():
     passed = acc_t >= MIN_TOOL_ACCURACY and acc_p >= MIN_PARAM_ACCURACY
     if multi_total:
         passed = passed and multi_ok == multi_total
+    passed = passed and dialog_ok == len(DIALOG_CASES)
     print()
     print(f"  判定：{'✅ 通过' if passed else '❌ 未达基线'}"
           f"（工具 ≥{MIN_TOOL_ACCURACY*100:.0f}%，参数 ≥{MIN_PARAM_ACCURACY*100:.0f}%"
-          f"{'，多步全对' if multi_total else ''}）")
+          f"{'，多步全对' if multi_total else ''}，对话全走模板）")
+
+    # 清理临时会话（评测不该在业务库里留垃圾）
+    try:
+        conversation_dao.delete(tmp_conv)
+        print(f"  （已删除临时会话 #{tmp_conv}）")
+    except Exception as e:
+        print(f"  ⚠️ 临时会话 #{tmp_conv} 清理失败：{e}")
+
     return 0 if passed else 1
 
 

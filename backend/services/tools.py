@@ -1,4 +1,4 @@
-"""工具层：11 个可被模型调用的函数。这是"能改变世界"的唯一入口。
+"""工具层：11 个可被模型调用的函数
 
 返回协议（所有工具统一）
 ------------------------
@@ -38,15 +38,12 @@ from services import rag_services, enrich_services
 
 DISTANCE_THRESHOLD =0.53
 
+# 并列问法的分隔符："A 和 B"、"A、B"、"A，B"、"A / B"
+_NAME_SPLIT = re.compile(r"\s*(?:以及|和|与|、|，|,|；|;|/|\+)\s*")
+
 
 def _to_float(v):
     """模型常把数字传成字符串（如 "500"、"¥500"、"500元"），这里统一转成 float。"""
-    if v is None or v == "":
-        return None
-    if isinstance(v, bool):
-        return None
-    if isinstance(v, (int, float)):
-        return float(v)
     # 去掉货币符号、千分位、"元/块"等单位，只留数字和小数点
     s = re.sub(r"[^\d.\-]", "", str(v).replace(",", "").replace("，", ""))
     try:
@@ -130,6 +127,36 @@ def query_products(name: str | None = None, category: str | None = None,
 
     has_filter = bool(category or max_price is not None or min_price is not None
                       or want_stock or sort)
+
+    # "A 和 B 的库存" 这类并列问法：模型会把整串当**一个**名字传进来
+    # （实测传的是 "小米手环8,罗技鼠标M590" 且带 in_stock=True），
+    # 单条 LIKE 必然 0 条。拆成多个名字、各带同样的筛选条件分别查，再合并。
+    # 这件事必须由代码做——模型既不会拆，也不会分两次调用。
+    parts = [p.strip() for p in _NAME_SPLIT.split(name) if p.strip()] if name else []
+    if len(parts) > 1:
+        merged, seen_ids = [], set()
+        for p in parts:
+            if has_filter:
+                sub = product_dao.query_products_filtered(
+                    name=p, category=category or None,
+                    max_price=max_price, min_price=min_price,
+                    in_stock=want_stock, sort=sort, limit=limit,
+                )
+            else:
+                sub = product_dao.query_products(p)
+            for r in sub:
+                if r["id"] not in seen_ids:
+                    seen_ids.add(r["id"])
+                    merged.append(r)
+        if merged:
+            if sort:
+                for i, r in enumerate(merged, 1):
+                    r["rank"] = i
+            return {"ok": True, "count": len(merged), "data": merged[:limit],
+                    "is_rag": False,
+                    "message": f"分别按 {len(parts)} 个商品名查询，共 {len(merged)} 条"}
+        return {"ok": True, "count": 0, "data": [], "is_rag": False,
+                "message": f"分别查了 {len(parts)} 个商品名，都没有找到"}
 
     if has_filter:
         rows = product_dao.query_products_filtered(
@@ -306,7 +333,6 @@ def recommend_products(occasion: str | None = None, budget: float | None = None,
 
     return {"ok": True, "count": len(picked), "data": picked, "is_rag": bool(dist),
             "message": message}
-
 def create_product(name: str, price: float = 0, stock: int = 0) -> dict:
     """新增商品。如果用户没给价格或库存，你要自己生成合理值。"""
     name = (name or "").replace(" ", "").strip()
@@ -477,14 +503,14 @@ def sales_report(name: str = None, days: int = 7) -> dict:
 
     使用场景：用户说"销售情况"、"卖了多少钱"、"这周业绩"、"卖得最好的是什么"时使用。
 
-    【重要】返回值里的 total_quantity 是**销量**，不是库存。
+    【重要】返回值里的 sold_quantity 是**销量**，不是库存。
     用户若问"还剩多少 / 库存多少"，必须另外用 query_products 查。
     只用本工具的销量去回答库存问题 = 答错。
 
     参数：
         name: 商品名（可选，不传查全部）。
         days: 最近多少天（默认 7）。
-    返回：销量、销售额、订单数。
+    返回：sold_quantity / total_amount / 订单数。
     """
     name = (name or "").replace(" ", "").strip()
     rows = sales_dao.get_sales(product_name=name, days=days)
@@ -495,7 +521,6 @@ def sales_report(name: str = None, days: int = 7) -> dict:
         "count": len(rows),
         # 字段名直接写明是"卖出的"，避免模型把它当库存
         "sold_quantity": total_qty,
-        "total_quantity": total_qty,        # 兼容旧调用
         "total_amount": round(total_amount, 2),
         "data": rows[:20],       # 最多 20 条明细
         "message": (
@@ -589,8 +614,28 @@ def query_purchases(name: str = None, days: int = None) -> dict:
         "data": rows,
         "message": f"共 {len(rows)} 条进货记录",
     }
-# ========== RAG =========
+# ========== 对话型工具（不碰数据库，只表达"我需要什么"）=========
+# 这两个工具的存在意义：让模型**用结构化参数**表达反问/拒绝，
+# 而不是自由生成一句话。文本由 services/reply_templates.py 渲染。
+def clarify(field: str, candidates: str = "") -> dict:
+    """信息不足，需要向用户追问。
 
+    Args:
+      field: 缺少什么，只能取以下之一：
+             name（商品名）/ quantity（数量）/ price（价格）/ stock（库存）
+             / target（要操作哪个）/ which_one（有多个候选，请用户挑一个）
+      candidates: 仅 which_one 时使用，逗号分隔的候选商品名
+    """
+    return {"ok": False, "kind": "clarify", "field": field, "candidates": candidates}
+def refuse(reason: str) -> dict:
+    """无法处理这个请求，需要拒绝。
+
+    Args:
+      reason: 只能取以下之一：
+              chat（闲聊，与商品无关）/ policy（退换货、发票等政策问题）
+              / unknown_goods（库里没有该商品）/ out_of_scope（超出能力范围）
+    """
+    return {"ok": False, "kind": "refuse", "reason": reason}
 # ============ 工具注册表 ============
 TOOL_FUNCTIONS = {
     # 商品
@@ -607,6 +652,9 @@ TOOL_FUNCTIONS = {
     # 进货
     "record_purchase": record_purchase,
     "query_purchases": query_purchases,
+    # 对话（不写库）
+    "clarify": clarify,
+    "refuse": refuse,
 }
 # 传给 Ollama 的工具列表
 TOOLS_FOR_AI = list(TOOL_FUNCTIONS.values())

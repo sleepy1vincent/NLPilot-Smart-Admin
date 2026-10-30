@@ -2,7 +2,6 @@ from flask import Blueprint, request
 from pymysql.err import IntegrityError
 from dao import product_dao
 from response import success, error
-from services import rag_services
 from services.tools import create_product as _create_product
 bp = Blueprint("product", __name__, url_prefix="/api")
 

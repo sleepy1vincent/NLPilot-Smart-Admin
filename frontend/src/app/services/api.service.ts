@@ -29,11 +29,28 @@ export class ApiService {
       `${this.base}/products/${encodeURIComponent(name)}`,
     );
   }
-  chat(message: string, history: any[] = []): Observable<any> {
-    return this.http.post<any>(`${this.base}/chat`, { message, history });
+
+  // ---------------- 对话 ----------------
+  /** conversationId 省略时后端会新建会话，返回值里带 conversation_id */
+  chat(message: string, conversationId?: number | null): Observable<any> {
+    return this.http.post<any>(`${this.base}/chat`, {
+      message,
+      conversation_id: conversationId ?? null,
+    });
   }
-  confirm(action: string, target: string,data:any): Observable<any> {
-    return this.http.post<any>(`${this.base}/chat/confirm`, { action, target,data });
+  confirm(action: string, target: string, data: any): Observable<any> {
+    return this.http.post<any>(`${this.base}/chat/confirm`, { action, target, data });
+  }
+
+  // ---------------- 会话 ----------------
+  listConversations(): Observable<ApiResponse<any[]>> {
+    return this.http.get<ApiResponse<any[]>>(`${this.base}/conversations`);
+  }
+  getConversation(id: number): Observable<ApiResponse<any>> {
+    return this.http.get<ApiResponse<any>>(`${this.base}/conversations/${id}`);
+  }
+  deleteConversation(id: number): Observable<ApiResponse<any>> {
+    return this.http.delete<ApiResponse<any>>(`${this.base}/conversations/${id}`);
   }
 
   getSales(name?: string, days?: number): Observable<ApiResponse<any[]>> {
@@ -42,10 +59,10 @@ export class ApiService {
     if (days != null) params = params.set('days', days.toString());
     return this.http.get<ApiResponse<any[]>>(`${this.base}/sales`, { params });
   }
-  getBought(name?:string,days?:number):Observable<ApiResponse<any[]>>{
+  getBought(name?: string, days?: number): Observable<ApiResponse<any[]>> {
     let params = new HttpParams();
-    if(name) params=params.set('name',name);
-    if(days!=null) params=params.set('days',days.toString());
-    return this.http.get<ApiResponse<any[]>>(`${this.base}/purchases`, { params })
+    if (name) params = params.set('name', name);
+    if (days != null) params = params.set('days', days.toString());
+    return this.http.get<ApiResponse<any[]>>(`${this.base}/purchases`, { params });
   }
 }

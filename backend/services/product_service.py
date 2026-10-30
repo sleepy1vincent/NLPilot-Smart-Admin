@@ -1,4 +1,4 @@
-"""工具分发层：把模型的决策变成一次真实的工具调用。
+"""工具分发层
 
 职责只有两件事
 --------------
@@ -25,73 +25,70 @@
 from services.tools import TOOL_FUNCTIONS
 from dao import product_dao
 
-# 这些工具要求"库里的准确商品名"，调用前先解析
-# （"哪些是写工具"这件事由 agent_service.READ_ONLY 决定，这里不再重复定义）
+# 这些工具要求"库里的准确商品名"
 LOOKUP_TOOLS = {"record_sale", "record_purchase", "update_product", "delete_product", "apply_discount"}
-
 # 参数里可能装商品名的键
 NAME_KEYS = ("name", "product_name", "target")
 
-
+#封装数据库查找的两个方式
 def _lookup(raw: str):
-    """按 精确 → 模糊 的顺序找商品，返回候选列表。
-
-    这里不走 RAG：名字对齐是字符串问题，不是语义问题。
-    向量只用在两处——语义查询的兜底、推荐的候选召回。
-    """
+    #准确查询
     row = product_dao.get_by_name(raw)
     if row:
         return [row]
+    #模糊查询
     return product_dao.query_products(raw)
-
-
+#把模型给的商品名换成准确的名字
 def _resolve_args(args: dict):
     """利用rag把模型给的商品名换成库里的准确名字。
-
     返回 (新参数, 反问 or None)。反问不为空时**不要执行工具**。
     """
+
+    #依次确定商品名的变量
     key = next((k for k in NAME_KEYS if args.get(k)), None)
     if not key:
         return args, None
-
+    #把商品名出去多余空格
     raw = str(args[key]).replace(" ", "").strip()
     if not raw:
         return args, None
-
+    #利用上面查询函数，先利用数据库的查询，查询raw相关的
     names = [c["name"] for c in _lookup(raw)]
-
-    if raw in names:              # 已经是准确名字
+    #原名字就有
+    if raw in names:
         return args, None
-    if not names:                 # 一个都没找到
+    #没找到
+    if not names:
         return args, f"库里没有找到「{raw}」，能说一下完整的商品名吗？"
+    #只有一个相关的
     if len(names) == 1:
         new_args = dict(args)
         new_args[key] = names[0]
         return new_args, None
-
-    # 多个候选 → 反问，不猜
+    #多个相关的，截取四个
     head, rest = names[0], names[1:4]
     ask = f"你是要找「{head}」吗？" + (f"库里还有：{'、'.join(rest)}" if rest else "")
     return args, ask
-
-
+#核心处理函数
 def handle(call: dict) -> dict:
     """根据 AI 的决策，调对应工具"""
+    #ai调用出现未知错误
     if not call.get("ok"):
         return {"ok": False, "message": call.get("message") or "AI 未能处理请求"}
+    #取出参数
     tool = call.get("tool")
     args = call.get("args") or {}
     fn = TOOL_FUNCTIONS.get(tool)
+    #未在指定函数库里面找到调用的名字
     if not fn:
-        # 模型可能编出不存在的工具名，这里不能假设 call 里一定有 is_txt
-        if call.get("is_txt"):
-            return {"ok": True, "message": call.get("message", "")}
         return {"ok": False, "message": f"未知工具：{tool}"}
+    #如果这个函数需要准确名字
     if tool in LOOKUP_TOOLS:
+        #先把名字改好
         args, ask = _resolve_args(args)
         if ask:
             return {"ok": False, "need_clarify": True, "message": ask}
-
+    #调用函数
     try:
         return fn(**args)
     except TypeError as e:
@@ -100,8 +97,6 @@ def handle(call: dict) -> dict:
                 "hint": f"{tool} 可用参数：{', '.join(_param_names(fn))}"}
     except Exception as e:
         return {"ok": False, "message": f"执行失败：{e}"}
-
-
 # 返回函数的参数
 def _param_names(fn):
     import inspect
