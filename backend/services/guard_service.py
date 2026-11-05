@@ -22,17 +22,14 @@ v3.0 早期用约 190 条规则判断模型是否"声称完成"：
 
 前端把这两个通道分开渲染（结果卡片 / 对话气泡 + "未执行"标记），
 用户能对照 —— 谎言活不下去，不是因为模型变诚实了，
-而是因为它旁边永远摆着账本。
 
 返回协议（inspect）
-------------------
-    {"executed": True,  "tool": "query_products", "reason": "..."}
-        模型调用了工具 → 结果以工具返回值为准
-
-    {"executed": False, "tool": None, "reason": "..."}
-        没调用工具 → 本次没有任何数据库操作（对话通道）
-
-注意：这里**不看文本内容**，只看 `tool` 字段是否存在。
+===================
+    {
+      "executed": bool,        这次有没有真的调用工具
+      "tool":     str | None,  调用了哪个工具；executed 为 False 时是 None
+      "reason":   str,         给日志/排查看的判定理由（不展示给用户）
+    }
 """
 
 
@@ -40,13 +37,14 @@ def inspect(call: dict) -> dict:
     """判断"这次到底有没有执行"。
 
     参数
-      call: nlu_service.recognize 的返回
+      call: nlu_service.recognize 的返回（固定 6 字段，靠 kind 区分）
+            这里不看 ok、不看 message，只看 kind —— 文本内容不参与判定。
 
     返回
       {"executed": bool, "tool": str|None, "reason": str}
     """
-    tool = call.get("tool")
-    if tool:
+    if call.get("kind") == "tool" and call.get("tool"):
+        tool = call["tool"]
         return {
             "executed": True,
             "tool": tool,

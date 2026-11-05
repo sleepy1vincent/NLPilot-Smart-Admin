@@ -1,31 +1,36 @@
-"""对话接口层：只做 HTTP 的事，业务全在 services/agent_service.py。
+"""对话接口层
 
 返回协议（POST /api/chat）
--------------------------
-请求：{"message": "...", "conversation_id": 12}      conversation_id 可省略（省略则新建）
-响应（HTTP 恒 200）：
-{
-  "code": 200, "message": "...",
-  "data": {
-      "conversation_id": 12,      # 新增：前端存下来，下次带上
-      "call":     {...},          # 最后一次模型决策
-      "result":   {...},          # 事实通道：只来自工具
-      "reply":    "...",          # 对话通道：模板文案 / 多步总结（可为空）
-      "executed": 0 | 1 | 2,      # 真正执行成功了几次
-      "trace":    [ {...} ]       # 每步记录
-  }
-}
+==========================
+    请求（conversation_id 可省略，省略则新建会话）
+        {"message": "...", "conversation_id": 12}
+
+    响应（HTTP 恒 200，业务结果放 data 里）
+        {
+          "code":    200,
+          "message": str,          与 data.reply 同义，给不读 data 的调用方用
+          "data": {
+            "conversation_id": int,      会话 id，前端存下来，下次带上
+            "call":     dict,            最后一次**工具**决策（见 nlu_service 协议）
+            "result":   dict,            最后一次工具返回值
+            "results":  list,            每一步工具返回值（多步时长度 >1）
+            "reply":    str,             对话通道：模板话术 / 多步总结
+            "executed": int,             真正执行成功的工具次数
+            "trace":    list,            每步记录 {step, tool, args, ok}
+          }
+        }
 
 会话接口
---------
-GET    /api/conversations          → [{"id","title","count","last_update"}]
-GET    /api/conversations/<id>     → {"id","last_update","messages":[{"role","content","at"}]}
-DELETE /api/conversations/<id>     → {"affected": N}
+========
+    GET    /api/conversations         → data: [{id, title, count, last_update}]
+    GET    /api/conversations/<id>    → data: {id, last_update, messages:[{id, role, content, at}]}
+    DELETE /api/conversations/<id>    → data: {affected: N}
 
 POST /api/chat/confirm
-----------------------
-成功: {"code":200,"data":{"affected":N},"message":"已删除：X"}
-失败: HTTP 400/404/409 + {"code":同状态码,"message":"原因","data":null}
+======================
+    成功 → data: {affected: N}，message: "已删除：X" / "已更改X价格为Y"
+    失败 → HTTP 400/404/409，data: null，message: 原因
+           （删除影响 0 行 → 409；价格本来就是该值 → 200 但 affected=0）
 """
 from flask import Blueprint, request
 

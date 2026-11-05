@@ -1,34 +1,50 @@
-"""工具层：11 个可被模型调用的函数
+"""工具层：13 个可被模型调用的函数。这是"能改变世界"的唯一入口。
 
 返回协议（所有工具统一）
-------------------------
-查询类
-    {"ok": True, "count": N, "data": [...], "is_rag": bool}
-        is_rag=True 表示结果来自向量检索（不是 SQL）
+========================
+公共字段（每个工具都有）
+    {
+      "ok":      bool,    这次调用成不成功
+      "message": str,     给用户看的一句话
+    }
 
-推荐类
-    {"ok": True, "count": N, "data": [{..., "reason": "推荐理由"}]}
+按工具类型追加的字段
+    ┌ 查询类 query_products / query_sales / sales_report / query_purchases
+    │   "count": int        结果条数
+    │   "data":  list       结果明细
+    │   "is_rag": bool      结果是否来自向量检索（True 表示不是 SQL 查到的）
+    │
+    ├ 推荐类 recommend_products
+    │   "data": [{..., "reason": "推荐理由"}]
+    │
+    ├ 变更类（真实写库）create_product / update_product / record_sale / record_purchase
+    │   "affected":    int   影响行数（0 表示"值没变"，**不算成功变更**）
+    │   "id":          int   新增商品的 id
+    │   "sale_id":     int   销售记录 id
+    │   "purchase_id": int   进货记录 id
+    │   "new_stock":   int   变更后的库存
+    │
+    ├ 提案类（**不写库**，等前端二次确认）delete_product / apply_discount
+    │   "need_confirm": True
+    │   "action":       "delete" | "discount"
+    │   "target":       商品名
+    │
+    └ 对话类 clarify / refuse（不碰数据库，文本由 reply_templates 渲染）
+        "kind":   "clarify" | "refuse"
+        "field":  str       仅 clarify：name/quantity/price/stock/target/which_one
+        "reason": str       仅 refuse：chat/policy/unknown_goods/out_of_scope
+        "candidates": str   仅 clarify 的 which_one：候选商品名，逗号分隔
 
-变更类（真实写库）
-    {"ok": True, "affected": N, "message": "..."}
-    {"ok": True, "id": 12, ...}            新增
-    {"ok": True, "sale_id": 33, "new_stock": 95}      销售
-    {"ok": True, "purchase_id": 8, "new_stock": 60}   进货
-    {"ok": True, "affected": 0, "message": "...没有变化"}   值相同（不算成功变更）
-
-提案类（**不写库**，等前端二次确认）
-    {"ok": True, "need_confirm": True, "action": "delete|discount",
-     "target": "iPhone15", "message": "即将删除…确认吗？"}
-
-失败
-    {"ok": False, "message": "原因"}
-    {"ok": False, "message": "...", "candidates": [...], "hint": "..."}   可自我纠正的错误
+失败（任何工具都可能）
+    {"ok": False, "message": "原因", "hint": "...可选，告诉模型怎么改"}
+    {"ok": False, "message": "...", "candidates": [...]}   商品名对不上时给候选
 
 硬规则
 ------
   · 副作用只能在这里发生（agent 层不直接碰 DAO）
-  · 写操作必须走事务；扣库存前先 SELECT ... FOR UPDATE 加行锁
-  · `affected == 0` 一律不算成功（不能用"没变化"冒充"已修改"）
+  · 写操作必须走事务；扣库存前先 SELECT ... FOR UPDATE 加行锁（事务由 Python 管，锁在 SQL 里）
+  · affected == 0 一律不算成功（不能用"没变化"冒充"已修改"）
+  · 每个工具自成闭环：参数校验、事务、错误信息都写在函数内部，不依赖调用方
 """
 import re
 
@@ -36,7 +52,7 @@ from db import Transaction
 from dao import product_dao, purchases_dao, sales_dao
 from services import rag_services, enrich_services
 
-DISTANCE_THRESHOLD =0.53
+DISTANCE_THRESHOLD = 0.537
 
 # 并列问法的分隔符："A 和 B"、"A、B"、"A，B"、"A / B"
 _NAME_SPLIT = re.compile(r"\s*(?:以及|和|与|、|，|,|；|;|/|\+)\s*")
@@ -333,6 +349,89 @@ def recommend_products(occasion: str | None = None, budget: float | None = None,
 
     return {"ok": True, "count": len(picked), "data": picked, "is_rag": bool(dist),
             "message": message}
+
+
+def discount_candidates(name: str = None, days: int = 30, top_k: int = 5,
+                        budget: float = None, occasion: str = None) -> dict:
+    """算出"该不该打折 / 该打谁"。这是纯计算，不要自己心算。
+
+    使用场景：
+        "哪个该打折" / "促销哪些好" / "哪些卖不动" / "清库存"     -> 不传 name，扫全部
+        "促销 iPhone 该怎么做" / "iPhone 要不要打折"            -> 传 name，只算这一个
+
+    注意：这是**给店主看的经营判断**，不是给顾客推荐商品（那用 recommend_products）。
+
+    参数：
+        name: 商品名（可选）。传了就只算这一个商品。
+        days: 参考最近多少天销量（默认 30）。
+        top_k: 返回几个候选（默认 5，最多 10）。
+        budget / occasion: 促销预算、目标人群。**这两个不影响周转判断，传了也会被忽略**，
+                           只是为了让"促销预算500 人群是学生"这种问法能正常落到本工具。
+
+    算法（全由代码算）：
+        日均销量 = 近 days 天该商品销量 / days
+        可售天数 = 当前库存 / 日均销量
+        排序：一件没卖的排最前（压货），其余按可售天数从长到短
+
+    返回：每个候选带 sold / daily_sold / days_left / reason
+    """
+    days = int(days or 30)
+    top_k = max(1, min(int(top_k or 5), 10))
+
+    products = product_dao.query_products(None) or []
+    sales = sales_dao.get_sales(days=days) or []
+
+    # 指定了商品就只算它（大小写不敏感："iphone" 要能匹配 "iPhone15"）
+    want = (name or "").replace(" ", "").strip().lower()
+    if want:
+        matched = [p for p in products if want in (p.get("name") or "").lower()]
+        if not matched:
+            return {"ok": False, "message": f"库里没有找到「{name}」"}
+        products = matched
+
+    # 按商品汇总近 days 天的销量
+    sold = {}
+    for r in sales:
+        nm = r.get("product_name")
+        if nm:
+            sold[nm] = sold.get(nm, 0) + int(r.get("quantity") or 0)
+
+    out = []
+    for p in products:
+        stock = int(p.get("stock") or 0)
+        if stock <= 0:
+            continue                      # 没库存就谈不上清库存
+        s = sold.get(p["name"], 0)
+        daily = round(s / days, 2)
+        price = float(p.get("price") or 0)
+        out.append({
+            "name": p["name"],
+            "price": p["price"],
+            "stock": stock,
+            "sold": s,
+            "daily_sold": daily,
+            "days_left": round(stock / daily) if daily > 0 else None,
+            "tied_cash": round(stock * price, 2),      # 占用资金，用于同类排序
+        })
+
+    # 一级：30 天一件没卖的排最前（压货）；二级：同组按占用资金从大到小
+    out.sort(key=lambda x: (x["days_left"] is not None, -x["tied_cash"]))
+    picked = out[:top_k]
+    for it in picked:
+        it.pop("tied_cash", None)
+        if it["days_left"] is None:
+            it["reason"] = f"{days} 天一件没卖，压货 {it['stock']} 件"
+        else:
+            it["reason"] = f"可售 {it['days_left']} 天，{days} 天卖 {it['sold']} 件"
+
+    if want:
+        message = (f"「{picked[0]['name']}」的周转情况" if len(picked) == 1
+                   else f"「{name}」相关 {len(picked)} 个商品的周转情况")
+    else:
+        message = f"按可售天数排，最该先处理这 {len(picked)} 个"
+    if budget is not None or occasion:
+        message += "（促销预算/人群不影响周转判断，未参与计算）"
+    return {"ok": True, "count": len(picked), "data": picked, "message": message}
 def create_product(name: str, price: float = 0, stock: int = 0) -> dict:
     """新增商品。如果用户没给价格或库存，你要自己生成合理值。"""
     name = (name or "").replace(" ", "").strip()
@@ -404,9 +503,10 @@ def apply_discount(name:str,rate:float)->dict:
     product = product_dao.get_by_name(name)
     if not product:
         return {"ok":False,"message":"打折的商品不存在"}
-    return {"ok":True,"need_confirm":True,"action":"discount","target":name,
-            "message":f"将要进行打折的商品：{name},价格将变成{float(product['price'])*rate}确定吗?",
-            "data":float(product['price'])*rate}
+    new_price = round(float(product['price']) * rate, 2)
+    return {"ok": True, "need_confirm": True, "action": "discount", "target": name,
+            "message": f"「{name}」打 {rate * 10:g} 折，价格将变为 ¥{new_price:.2f}，确认吗？",
+            "data": new_price}
 # =========== sale ===============
 def record_sale(product_name: str, quantity: int, unit_price: float = None) -> dict:
     """
@@ -617,16 +717,22 @@ def query_purchases(name: str = None, days: int = None) -> dict:
 # ========== 对话型工具（不碰数据库，只表达"我需要什么"）=========
 # 这两个工具的存在意义：让模型**用结构化参数**表达反问/拒绝，
 # 而不是自由生成一句话。文本由 services/reply_templates.py 渲染。
-def clarify(field: str, candidates: str = "") -> dict:
-    """信息不足，需要向用户追问。
+def clarify(slots: str, candidates: str = "") -> dict:
+    """信息不足，需要向用户追问。**填槽位名，不要写句子。**
+
+    使用场景：
+      "帮我删了"（没说哪个商品）        -> slots="商品名"
+      "给个促销计划"（缺目标和预算）     -> slots="促销商品,目标人群,预算"
+      "有多个叫 iPhone 的"             -> slots="具体型号", candidates="iPhone15,iPhone17"
 
     Args:
-      field: 缺少什么，只能取以下之一：
-             name（商品名）/ quantity（数量）/ price（价格）/ stock（库存）
-             / target（要操作哪个）/ which_one（有多个候选，请用户挑一个）
-      candidates: 仅 which_one 时使用，逗号分隔的候选商品名
+      slots: 逗号分隔的**槽位名**（名词短语），最多 4 个，每个不超过 12 字。
+             只写"缺什么"，不要写成问句或陈述句——
+             出现句号/问号/冒号/括号等标点时，那一项会被丢弃；
+             全部不合格时系统会改用兜底话术。
+      candidates: 可选，逗号分隔的候选商品名（有明确选项时才填）
     """
-    return {"ok": False, "kind": "clarify", "field": field, "candidates": candidates}
+    return {"ok": False, "slots": slots, "candidates": candidates}
 def refuse(reason: str) -> dict:
     """无法处理这个请求，需要拒绝。
 
@@ -635,12 +741,13 @@ def refuse(reason: str) -> dict:
               chat（闲聊，与商品无关）/ policy（退换货、发票等政策问题）
               / unknown_goods（库里没有该商品）/ out_of_scope（超出能力范围）
     """
-    return {"ok": False, "kind": "refuse", "reason": reason}
+    return {"ok": False, "reason": reason}
 # ============ 工具注册表 ============
 TOOL_FUNCTIONS = {
     # 商品
     "query_products": query_products,
     "recommend_products": recommend_products,
+    "discount_candidates": discount_candidates,
     "create_product": create_product,
     "update_product": update_product,
     "delete_product": delete_product,

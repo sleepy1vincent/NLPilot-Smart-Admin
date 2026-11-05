@@ -127,7 +127,7 @@ MULTI_CASES = [
     ("对比 iPhone15 和 AirPodsPro 的价格", 1, 3),
 ]
 
-# 复合结果用例：走多步时，**每一步的结果都必须留在 results 里**，不能只剩最后一次。
+# 复合结果用例：走多步时，**每一步的结果都必须留在 steps 里**，不能只剩最后一次。
 #   (用户输入, 结果里必须同时出现的商品名)
 COMPOSITE_CASES = [
     ("查 iPhone15 的库存，再查 AirPodsPro 的库存", ["iPhone15", "AirPodsPro"]),
@@ -277,8 +277,8 @@ def main():
             t0 = time.time()
             d = _post(msg).get_json().get("data") or {}
             dt = time.time() - t0
-            trace = d.get("trace") or []
-            n = len([t for t in trace if not t.get("skipped")])
+            steps = d.get("steps") or []
+            n = len([s for s in steps if not s.get("skipped")])
             good = lo <= n <= hi and d.get("executed", 0) >= 1
             if good:
                 multi_ok += 1
@@ -291,29 +291,28 @@ def main():
         print("=" * 96)
         print("复合结果用例（结果里必须包含每一步的数据）")
         print("=" * 96)
-        print(f"  {'用户输入':<32}{'步数':<8}{'results':<10}{'结果'}")
+        print(f"  {'用户输入':<32}{'步数':<8}{'带结果':<10}{'结果'}")
         print("  " + "-" * 90)
         for msg, must_have in COMPOSITE_CASES:
             multi_total += 1
             d = _post(msg).get_json().get("data") or {}
-            trace = d.get("trace") or []
-            n_ok = len([t for t in trace if t.get("ok")])
-            results = d.get("results") or []
-            # 拿结果里出现的所有商品名
+            steps = d.get("steps") or []
+            # 成功执行了几步，就应该有几条带 result 的记录
+            n_ok = len([s for s in steps if s.get("ok")])
+            with_result = [s for s in steps if s.get("result")]
             names = []
-            for row in results:
-                for it in ((row.get("result") or {}).get("data") or []):
+            for s in with_result:
+                for it in ((s.get("result") or {}).get("data") or []):
                     if isinstance(it, dict) and it.get("name"):
                         names.append(it["name"])
-            # 两条判据：① 成功执行了几步就有几条 results ② 要求的商品都出现
-            good = (len(results) == n_ok) and all(m in names for m in must_have)
+            good = (len(with_result) == n_ok) and all(m in names for m in must_have)
             if good:
                 multi_ok += 1
             else:
                 miss = [m for m in must_have if m not in names]
-                failures.append((msg, f"复合：results={len(results)} 成功步={n_ok}"
+                failures.append((msg, f"复合：带结果 {len(with_result)} 条 / 成功步 {n_ok}"
                                       + (f"，缺 {miss}" if miss else "")))
-            print(f"  {msg[:30]:<32}{n_ok:<8}{len(results):<10}{'✅' if good else '❌'}")
+            print(f"  {msg[:30]:<32}{n_ok:<8}{len(with_result):<10}{'✅' if good else '❌'}")
     elif Config.CHAT_LOOP:
         print("\n  提示：CHAT_LOOP=1 但 agent_service.run_loop 不可用，多步用例跳过")
 

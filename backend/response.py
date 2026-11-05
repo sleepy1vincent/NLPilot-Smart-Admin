@@ -1,13 +1,16 @@
-"""统一响应格式。HTTP 状态码 = 业务码，前端按状态码分类处理。
+"""统一响应格式：所有接口都走这两个函数，HTTP 状态码 = 业务码。
 
-返回协议
---------
-成功（HTTP 200）
-    {"code": 200, "message": "success", "data": <任意>}
+返回协议（success / error）
+===========================
+    {
+      "code":    int,           HTTP 状态码，同时作为业务码
+      "message": str,           给用户看的一句话（不是给前端做判断用）
+      "data":    any | null,    业务数据；失败时固定 null
+    }
 
-失败（HTTP 400-599）
-    {"code": <HTTP 码>, "message": "原因", "data": null}
-    非法码降级为 400
+    成功：code = 200，data = 业务对象
+    失败：code = 400~599（非法码一律降级 400），data = null
+          error() 同时把 HTTP 状态码设成同一个值，前端可以直接按 http 状态分流
 """
 from flask import jsonify
 

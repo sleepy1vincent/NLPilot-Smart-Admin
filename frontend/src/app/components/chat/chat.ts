@@ -168,11 +168,10 @@ export class Chat implements OnInit {
     }
 
     // 事实通道：真的调用了工具 → 渲染工具返回值
-    // 多步时 data.results 里每一步都有一条，逐条渲染成卡片（以前只渲染最后一条，前面的数据会丢）
     if (data.executed) {
-      const rows: any[] = Array.isArray(data.results) && data.results.length
-        ? data.results
-        : [{ step: 1, tool: (data.call || {}).tool, result }];
+      // 后端只给一条 steps；每条带 result 的，就是要渲染成卡片的那一步
+      const steps: any[] = Array.isArray(data.steps) ? data.steps : [];
+      const rows = steps.filter((s) => s && s.result);
 
       const multi = rows.length > 1;
       for (const row of rows) {

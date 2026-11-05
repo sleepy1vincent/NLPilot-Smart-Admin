@@ -1,29 +1,15 @@
-"""意图识别层
+"""意图识别层：让模型做一次决策，并把它翻译成**一个固定结构**。
 
 返回协议（recognize）
----------------------
-    {"ok": True,  "tool": "query_products", "args": {...}}
-        模型选了一个工具。
-
-    {"ok": True,  "tool": "...", "args": {...}, "recovered": True}
-        同上，但是这个调用是从"泄漏成文本的 tool_call"里解析回来的（qwen2.5 偶发）。
-
-    {"ok": True,  "is_txt": True, "message": "..."}
-        模型只回了文字（闲聊 / 反问 / 拒绝）。
-
-    {"ok": False, "message": "..."}
-        调用失败（模型异常 / 返回空 / 泄漏且无法解析）。
-        此时 message 已是"能给用户看"的话术，调用方直接展示即可。
-
-上游（agent_service）只看两个字段：
-    有 tool → 交给 product_service.handle 执行
-    无 tool → message 走"对话通道"
-
-注 1：v3.0 曾同时返回 message 和 reply，但两者在成功分支是同一个变量，
-      失败分支的 reply 也从没被读过 —— 已删除，只保留 message。
-注 2：ollama 有个已知问题——模型偶尔把 tool_call 生成成解析不了的形式，
-      结果是 content 和 tool_calls 同时为空（实测"有哪些耳机"必现，6 个 seed 全空）。
-      对策是给最后一条 user 消息补一句"（请用工具查询）"再试，实测能恢复。
+=====================
+    {
+      "ok":        bool,        这次"和模型说话"本身成不成功
+      "kind":      "tool" | "text" | "error",   这次模型做了哪件事（唯一需要 switch 的字段）
+      "tool":      str | None,    工具名
+      "args":      dict,          工具参数
+      "message":   str,           文字内容(模型的原文）
+      "recovered": bool,          这个工具调用是不是"捞回来"的
+    }
 """
 import json
 import re
@@ -141,6 +127,22 @@ def _recover_tool_call(content: str):
         return None
     return {"name": name, "args": args if isinstance(args, dict) else {}}
 
+
+def _resp(kind: str, tool=None, args=None, message="", ok=True, recovered=False) -> dict:
+    """统一返回结构：**永远 6 个字段**，调用方不必猜形状。
+
+    只允许 kind 取 "tool" / "text" / "error"，其余字段由 kind 决定语义，
+    具体含义见文件头注释。
+    """
+    return {
+        "ok": ok,
+        "kind": kind,
+        "tool": tool,
+        "args": args or {},
+        "message": message or "",
+        "recovered": recovered,
+    }
+
 #核心做决策函数
 def recognize(user_input, history: list = None, max_retries: int = 3,
               retry_text: bool = False) -> dict:
@@ -187,7 +189,7 @@ def recognize(user_input, history: list = None, max_retries: int = 3,
                 tool_name = call["function"]["name"]
                 tool_args = call["function"]["arguments"]
                 print(f"[recognize 第 {attempt + 1} 次] ✅ tool={tool_name} args={tool_args}")
-                return {"ok": True, "tool": tool_name, "args": tool_args}
+                return _resp("tool", tool=tool_name, args=tool_args)
             #记录大模型的内容
             content = msg.get("content") or ""
             print(f"[recognize 第 {attempt + 1} 次] ⚠️ 没调工具，content={content!r}")
@@ -205,8 +207,8 @@ def recognize(user_input, history: list = None, max_retries: int = 3,
             if recovered:
                 print(f"[recognize] ♻️ 从泄漏文本中恢复 tool={recovered['name']} "
                       f"args={recovered['args']}")
-                return {"ok": True, "tool": recovered["name"], "args": recovered["args"],
-                        "recovered": True}
+                return _resp("tool", tool=recovered["name"],
+                             args=recovered["args"], recovered=True)
             #产生泄露
             if _is_tool_leak(content):
                 leaked = True
@@ -216,7 +218,7 @@ def recognize(user_input, history: list = None, max_retries: int = 3,
             if retry_text and attempt == 0:
                 print(f"[recognize 第 {attempt + 1} 次] 💬 文字回复，循环模式下再试一次")
                 continue
-            return {"ok": True, "is_txt": True, "message": content}
+            return _resp("text", message=content)
         except Exception as e:
             print(f"[recognize 第 {attempt + 1} 次] ❌ 异常：{e}")
             last_message = str(e)
@@ -227,12 +229,12 @@ def recognize(user_input, history: list = None, max_retries: int = 3,
     # 失败统一给一句用户能看懂的话（异常堆栈只在日志里）
     if unknow:
         print(f"[recognize] 最后一次异常：{last_message}")
-        return {"ok": False, "message": "AI 服务暂时不可用，请稍后重试。"}
+        return _resp("error", ok=False, message="AI 服务暂时不可用，请稍后重试。")
     if empty:
-        return {"ok": False, "message": "没能理解这个请求，请换个说法试试。"}
+        return _resp("error", ok=False, message="没能理解这个请求，请换个说法试试。")
     if not last_message:
-        return {"ok": False, "message": "AI 没有返回内容，请重试。"}
+        return _resp("error", ok=False, message="AI 没有返回内容，请重试。")
     if leaked:
-        return {"ok": False, "message": "没能理解这个请求，请换个说法试试。"}
+        return _resp("error", ok=False, message="没能理解这个请求，请换个说法试试。")
 
-    return {"ok": True, "is_txt": True, "message": last_message}
+    return _resp("text", message=last_message)

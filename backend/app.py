@@ -33,7 +33,7 @@ def _boot_check():
                 print(f" - {n}" + (" …" if len(missing) > 5 else ""))
             print(f"   补全命令：cd backend && python scripts/auto_tag.py")
         else:
-            print(f"[自检] ✅ {total}/{total} 个商品都有描述，语义检索完整")
+            print(f"[自检]{total}/{total} 个商品都有描述，语义检索完整")
     except Exception as e:
         print(f"[自检] RAG 初始化失败，降级为纯 SQL 模式: {e}")
 

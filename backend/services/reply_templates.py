@@ -1,22 +1,4 @@
-"""对话文本模板
-
-------------------
-模型自由生成文字带来过三类事故（都是实测）：
-  1. 「在吗」被重试掰成 query_products() → 拉出 27 条商品
-  2. 伪造了"共 3 条：· 华为MateBook D15 ¥4299 库存67"——库里没有这个商品
-  3. 「卖得最好的还剩多少库存」把销量 5 说成库存 5（实际 138）
-
-结论：**模型可以决定"做什么"，但不能决定"怎么说"。**
-
-现在的分工：
-    模型 → 只输出结构化意图（tool + 受限参数）
-    代码 → 从这里选一句话渲染给用户
-
-模型能说的只有：
-    clarify(field=...)   → 六个预设字段之一
-    refuse(reason=...)   → 四个预设原因之一
-    什么都没调           → FALLBACK（固定话术）
-"""
+"""对话文本模板：给用户看的话都由这里渲染，模型只出结构化参数。"""
 
 #追问
 CLARIFY = {
@@ -45,12 +27,13 @@ FALLBACK = (
     "· 卖了 2 个 AirPodsPro"
 )
 #把上文的东西正确渲染
-def render_clarify(field: str, candidates: str = "") -> str:
-    text = CLARIFY.get(field)
-    if not text:
+def render_clarify(slots: str, candidates: str = "") -> str:
+    parts = [p.strip() for p in str(slots or "").split(",") if p.strip()]
+    if not parts:
         return FALLBACK
-    if "{candidates}" in text:
-        return text.format(candidates=candidates or "（没给出候选）")
+    text = "请补充：" + " / ".join(parts)
+    if candidates:
+        text += "\n可选：" + candidates
     return text
 def render_refuse(reason: str) -> str:
     return REFUSE.get(reason, FALLBACK)

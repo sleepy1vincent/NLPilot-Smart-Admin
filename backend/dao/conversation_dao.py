@@ -1,19 +1,31 @@
 """对话记录 DAO。
 
 表结构（已有，未改动）
+=====================
     conversations(id, last_update, created_at)
     messages(id, belong_id, content, role enum('ai','user'), last_update)
 
+返回协议
+========
+    create()                    → int            新会话 id
+    add_message(conv_id, ...)   → None           只写库，无返回
+    raw_messages(conv_id)       → list[{id, role, content, at}]
+    history(conv_id, turns)     → list[{role, content}]    role 为 user / assistant
+    list_conversations(limit)   → list[{id, title, count, last_update}]
+    get_conversation(conv_id)   → dict | None    {id, last_update, messages:[...]}
+    clear_messages(conv_id)     → int            删除的消息条数
+    delete(conv_id)             → int            影响行数（0 = 会话不存在）
+
 设计说明
 --------
-1. **不存模型原文**。存的是"用户看到的那句话"：
-   业务工具 → 存工具返回的 message（事实）
-   clarify/refuse → 存渲染后的模板文案
-   这样历史回放和当时看到的一致，也不会把模型编造的内容落库。
+    1. **不存模型原文**。存的是"用户看到的那句话"：
+       业务工具 → 存工具返回的 message（事实）
+       clarify/refuse → 存渲染后的模板文案
+       这样历史回放和当时看到的一致，也不会把模型编造的内容落库。
 
-2. **title 不落库**，由首条 user 消息截断生成（避免改表结构）。
+    2. **title 不落库**，由首条 user 消息截断生成（避免改表结构）。
 
-3. 历史转成 ollama 的 messages 格式时，role 的 'ai' 要映射成 'assistant'。
+    3. 历史转成 ollama 的 messages 格式时，role 的 'ai' 映射成 'assistant'。
 """
 from db import get_conn, Transaction
 

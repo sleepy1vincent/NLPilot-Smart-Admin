@@ -1,26 +1,15 @@
 """工具分发层
 
-职责只有两件事
---------------
-    1. 商品名解析：模型说 "iphone"，换成库里的 "iPhone15"（精确 → LIKE）
-    2. 分发执行：按 tool 名找到函数并调用
-
 返回协议（handle）
-------------------
-成功（内容由各工具自己定义，公共字段如下）：
-    {"ok": True,  "message": "...", ...工具自有字段}
-        查询类通常带 count / data / is_rag
-        变更类通常带 affected / id / sale_id / new_stock
-        提案类带 need_confirm + action + target + message
-
-失败：
-    {"ok": False, "message": "原因"}
-        商品不存在 / 参数错误 / 库存不足 / 未知工具 …
-        参数错误时额外带 "hint"（可用参数列表，便于模型下一轮自我纠正）
-
-需要用户决策（本轮**没有**执行任何写操作）：
-    {"ok": False, "need_clarify": True, "message": "你是要找「iPhone15」吗？"}
-        商品名对不上、有多个候选 → 反问，不猜
+==================
+    {
+      "ok":           bool,           工具执行成不成功
+      "message":      str,            给用户看的一句话
+      "need_confirm": bool,           需要前端弹窗确认（删除 / 打折）
+      "need_clarify": bool,           需要用户补充信息
+      "hint":         str,            参数错误的提示，便于模型下一轮自我纠正
+      ...工具自有字段                 查询类 count/data/is_rag；变更类 affected/id/sale_id/new_stock
+    }
 """
 from services.tools import TOOL_FUNCTIONS
 from dao import product_dao
@@ -71,10 +60,14 @@ def _resolve_args(args: dict):
     return args, ask
 #核心处理函数
 def handle(call: dict) -> dict:
-    """根据 AI 的决策，调对应工具"""
-    #ai调用出现未知错误
-    if not call.get("ok"):
-        return {"ok": False, "message": call.get("message") or "AI 未能处理请求"}
+    """根据 AI 的决策，调对应工具。
+
+    入参是 nlu_service 的固定结构：这里只处理 kind=="tool" 的情况，
+    其它情况（text / error）在 agent_service 就被拦下了，不该走到这里。
+    """
+    #防御：只有 tool 才是"要执行"
+    if call.get("kind") != "tool":
+        return {"ok": False, "message": call.get("message") or "没有可执行的工具调用"}
     #取出参数
     tool = call.get("tool")
     args = call.get("args") or {}
