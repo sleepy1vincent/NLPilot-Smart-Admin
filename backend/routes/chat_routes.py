@@ -69,6 +69,8 @@ def chat():
         conversation_dao.add_message(conv_id, "user", msg)
         if shown:
             conversation_dao.add_message(conv_id, "ai", shown)
+        # 动作日志落库：历史会话也能看到"AI 干了什么"
+        conversation_dao.add_actions(conv_id, payload.get("steps") or [])
     except Exception as e:
         print(f"[会话] 记录失败 conv={conv_id}: {e}")
 
@@ -106,6 +108,23 @@ def chat_confirm():
     action = body.get("action")
     target = (body.get("target") or "").strip()
     data = body.get("data")
+    conv_id = body.get("conversation_id")
+
+    def _log_confirm(msg: str, tool: str, payload: dict) -> None:
+        """确认类写操作也要进动作日志（否则历史回放少了真正改数据的那一步）。"""
+        try:
+            cid = int(conv_id) if conv_id is not None else None
+        except (TypeError, ValueError):
+            cid = None
+        if not cid:
+            return
+        try:
+            conversation_dao.add_actions(cid, [
+                {"step": 0, "tool": tool, "args": payload,
+                 "ok": True, "result": {"ok": True, "message": msg}},
+            ])
+        except Exception as e:
+            print(f"[会话] 确认动作日志写入失败 conv={cid}: {e}")
 
     if not action or not target:
         return error("缺少 action 或 target", code=400)
@@ -122,14 +141,15 @@ def chat_confirm():
             rag_services.delete_products([product["id"]])
         except Exception as e:
             print(f"[RAG] 删除同步失败 id={product['id']}: {e}")
+        _log_confirm(f"已删除：{target}", "delete_product", {"name": target})
         return success(data={"affected": rows}, message=f"已删除：{target}")
-
     if action == "discount" and isinstance(data, int | float) and not isinstance(data, bool):
         rows = product_dao.update_product(target, {"price": data})
         # 影响 0 行 = 价格本来就是这个值，不能报"已更改"
         if rows == 0:
             return success(data={"affected": 0},
                            message=f"{target} 的价格已经是 {data}，未做修改")
+        _log_confirm(f"已更改{target}价格为{data}", "update_product",
+                     {"name": target, "price": data})
         return success(data={"affected": rows}, message=f"已更改{target}价格为{data}")
-
     return error(f"不支持的确认操作：{action}", code=400)

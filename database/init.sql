@@ -46,3 +46,20 @@ CREATE TABLE IF NOT EXISTS purchases (
     KEY idx_product (product_name),
     KEY idx_purchased_at (purchased_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='进货记录';
+
+-- AI 动作日志：每次对话调用了哪个工具、参数、结果摘要（右侧日志面板的数据源）
+CREATE TABLE IF NOT EXISTS action_logs (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    belong_id  INT NOT NULL COMMENT '所属会话',
+    step       INT NOT NULL DEFAULT 0 COMMENT '第几步',
+    tool       VARCHAR(64) NOT NULL COMMENT '工具名',
+    args       TEXT NULL COMMENT '参数 JSON',
+    ok         TINYINT(1) NULL COMMENT '1成功 0失败 NULL被跳过',
+    skipped    VARCHAR(128) NULL COMMENT '被跳过原因',
+    summary    VARCHAR(500) NULL COMMENT '结果摘要',
+    detail     MEDIUMTEXT NULL COMMENT '原始返回 JSON（截断存）',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_belong (belong_id),
+    CONSTRAINT fk_action_conv FOREIGN KEY (belong_id)
+        REFERENCES conversations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI 动作日志';

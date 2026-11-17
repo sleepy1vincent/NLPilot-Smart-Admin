@@ -18,6 +18,12 @@ app.register_blueprint(purchases_bp)
 
 def _boot_check():
     """启动自检：同步索引 + 报告标签覆盖率。任何异常都不阻止启动。"""
+    # 动作日志表：旧库自动补齐（幂等），不手动跑 SQL 也能用
+    try:
+        from dao import conversation_dao as _cd
+        _cd.ensure_table()
+    except Exception as e:
+        print(f"[自检] action_logs 建表失败（历史日志不可用）: {e}")
     try:
         rows = product_dao.query_products()
         rag_services.init_product([{
@@ -58,5 +64,41 @@ def health():
         rag_stats["error"] = str(e)
     return success(data={"service": "NLPilot running",
                          "data_quality": stats, "rag": rag_stats})
+
+
+# ---------------- 托管前端（可选）----------------
+# 前端构建产物在 frontend/dist/frontend/browser。
+# 存在就一起提供：这样演示只开一个进程、一个网址，刷新/深链接都不会 404。
+import os as _os
+from flask import send_from_directory as _send
+
+_DIST = _os.path.normpath(_os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)),
+    "..", "frontend", "dist", "frontend", "browser"))
+
+
+def _has_dist():
+    return _os.path.isfile(_os.path.join(_DIST, "index.html"))
+
+
+@app.route("/")
+def index():
+    if not _has_dist():
+        return ("前端还没构建：在 frontend/ 下执行 npm run build，然后刷新本页", 503)
+    return _send(_DIST, "index.html")
+
+
+@app.route("/<path:path>")
+def spa(path):
+    # /api/* 由蓝图处理，不会走到这里；这里只兜前端路由和静态文件
+    if path.startswith("api/"):
+        return error("接口不存在", code=404)
+    full = _os.path.normpath(_os.path.join(_DIST, path))
+    if full.startswith(_DIST) and _os.path.isfile(full):
+        return _send(_DIST, path)
+    # 其余路径一律回 index.html（SPA 深链接）
+    return index()
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=Config.PORT, debug=Config.DEBUG)

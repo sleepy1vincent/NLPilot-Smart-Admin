@@ -1,36 +1,27 @@
-import { Component, ChangeDetectorRef, ElementRef, OnInit, ViewChild, inject } from '@angular/core';
+import {
+  Component, ChangeDetectorRef, ElementRef, OnDestroy, OnInit, ViewChild, inject,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
 
+/** 对话区只放"话"：用户输入 + AI 的回复 / 模板话术 */
 interface ChatMessage {
   role: 'user' | 'ai';
   content: string;
-  /** result = 工具返回值（事实卡片）；reply = 文本气泡 */
-  kind?: 'result' | 'reply';
-  /** 结果来源：db = SQL 直查；rag = 语义召回 */
-  source?: 'db' | 'rag';
-  /** 多步循环的"总结" */
-  summary?: boolean;
-  /** 系统话术（clarify / refuse / 兜底），灰底居中 */
+  /** 模板话术（clarify / refuse / 兜底）：虚线灰底 */
   system?: boolean;
-  /** 卡片标题（多步时区分第几步、哪个工具） */
-  label?: string;
+  /** 多步总结 */
+  summary?: boolean;
 }
 
-/** 工具名 → 中文标签，用于卡片头部 */
-const TOOL_LABEL: Record<string, string> = {
-  query_products: '查询商品',
-  recommend_products: '推荐商品',
-  query_sales: '销售记录',
-  sales_report: '销售统计',
-  query_purchases: '进货记录',
-  create_product: '新增商品',
-  update_product: '修改商品',
-  delete_product: '删除商品',
-  apply_discount: '打折',
-  record_sale: '记录销售',
-  record_purchase: '记录进货',
-};
+/** 右侧日志：AI 干了什么 */
+interface LogEntry {
+  time: string;
+  level: 'INFO' | 'WARN' | 'ERROR';
+  text: string;
+  /** 可展开的原始数据 */
+  detail?: string;
+}
 
 interface ConvItem {
   id: number;
@@ -46,20 +37,39 @@ interface ConvItem {
   templateUrl: './chat.html',
   styleUrl: './chat.css',
 })
-export class Chat implements OnInit {
+export class Chat implements OnInit, OnDestroy {
   messages: ChatMessage[] = [];
+  logs: LogEntry[] = [];
   conversations: ConvItem[] = [];
   conversationId: number | null = null;
   userInput = '';
   loading = false;
+  now = '';
+  showConvs = false;
+  expanded = new Set<number>();
 
   @ViewChild('scroller') scroller?: ElementRef<HTMLElement>;
 
   private api = inject(ApiService);
   private cdr = inject(ChangeDetectorRef);
+  private timer: any;
 
   ngOnInit(): void {
     this.refreshConversations();
+    this._tick();
+    this.timer = setInterval(() => this._tick(), 1000);
+  }
+
+  ngOnDestroy(): void {
+    if (this.timer) clearInterval(this.timer);
+  }
+
+  private _tick(): void {
+    const d = new Date();
+    const p = (n: number) => String(n).padStart(2, '0');
+    this.now = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
+             + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+    this.cdr.detectChanges();
   }
 
   // ---------------------------------------------------------------- 会话
@@ -74,10 +84,17 @@ export class Chat implements OnInit {
     });
   }
 
+  toggleConvs(): void {
+    this.showConvs = !this.showConvs;
+    this.cdr.detectChanges();
+  }
+
   newChat(): void {
     this.conversationId = null;
     this.messages = [];
+    this.logs = [];
     this.userInput = '';
+    this.showConvs = false;
     this.cdr.detectChanges();
   }
 
@@ -90,8 +107,17 @@ export class Chat implements OnInit {
         this.messages = rows.map((m: any) => ({
           role: m.role === 'user' ? 'user' : 'ai',
           content: m.content,
-          kind: 'reply' as const,
         }));
+        // 历史日志：后端 action_logs 里存的每一步
+        const rawLogs: any[] = res?.data?.logs ?? [];
+        this.logs = rawLogs.map((a: any) => this._logFromRow(a)).reverse();
+        if (!this.logs.length) {
+          this.logs = [{
+            time: this._hm(new Date()), level: 'INFO',
+            text: `已载入历史会话 #${id}（${rows.length} 条消息，本次对话没有工具记录）`,
+          }];
+        }
+        this.showConvs = false;
         this.cdr.detectChanges();
         this._scrollToEnd();
       },
@@ -120,6 +146,7 @@ export class Chat implements OnInit {
     this.loading = true;
     this.cdr.detectChanges();
     this._scrollToEnd();
+    this._log('INFO', `收到指令：${text}`);
 
     this.api.chat(text, this.conversationId).subscribe({
       next: (res) => this._handleResponse(res),
@@ -134,7 +161,6 @@ export class Chat implements OnInit {
     }
   }
 
-  /** 欢迎页的快捷问题 */
   quick(text: string): void {
     this.userInput = text;
     this.send();
@@ -148,85 +174,144 @@ export class Chat implements OnInit {
     const isNew = this.conversationId === null;
     if (data.conversation_id) this.conversationId = data.conversation_id;
 
-    // 需要确认：工具只提了案，真正的写操作在 /api/chat/confirm
+    // 1) 写操作需要确认
     if (result?.need_confirm) {
+      this._log('WARN', `${result.action}(${this._args({ target: result.target })}) 等待人工确认`);
       const ok = confirm(result.message || '确认执行此操作？');
       if (ok) {
         this._doConfirm(result.action, result.target, result?.data ?? '');
       } else {
-        this._pushAi('已取消', 'reply');
+        this._pushAi('已取消', true);
+        this._log('INFO', '用户取消，未执行');
       }
       if (isNew) this.refreshConversations();
       return;
     }
 
-    // 商品名没对上：反问，不执行
+    // 2) 商品名没对上：反问
     if (result?.need_clarify) {
-      this._pushAi(result.message || '你要找的是哪个商品？', 'reply');
+      this._pushAi(result.message || '你要找的是哪个商品？', true);
+      this._log('WARN', `未匹配到商品：${result.message || ''}`);
       if (isNew) this.refreshConversations();
       return;
     }
 
-    // 事实通道：真的调用了工具 → 渲染工具返回值
-    if (data.executed) {
-      // 后端只给一条 steps；每条带 result 的，就是要渲染成卡片的那一步
-      const steps: any[] = Array.isArray(data.steps) ? data.steps : [];
-      const rows = steps.filter((s) => s && s.result);
-
-      const multi = rows.length > 1;
-      for (const row of rows) {
-        const r = row.result || {};
-        const label = this._cardLabel(row.tool, row.step, multi);
-        this._pushAi(this._formatResult(r, r.message), 'result',
-                    r.is_rag ? 'rag' : 'db', false, false, label);
+    // 3) 真的执行了工具：动作全部进右侧日志，对话区只放话
+    const steps: any[] = Array.isArray(data.steps) ? data.steps : [];
+    for (const s of steps) {
+      if (!s) continue;
+      const call = `${s.tool}(${this._args(s.args)})`;
+      if (s.skipped) {
+        this._log('WARN', `${call} 被跳过：${s.skipped}`);
+      } else if (s.ok) {
+        this._log('INFO', `${call} → ${this._summarize(s.result)}`,
+                  s.result ? JSON.stringify(s.result) : undefined);
+      } else {
+        this._log('ERROR', `${call} → 执行失败`);
       }
-      this.loading = false;
-
-      // 多步循环的总结（单步模式 reply 为空，这里不会触发）
-      const summary = (data.reply || '').trim();
-      if (summary) this._pushAi(summary, 'reply', 'db', true);
-      if (isNew) this.refreshConversations();
-      return;
     }
 
-    // 对话通道：clarify / refuse / 兜底 —— 全部是后端模板，不是模型原文
-    this._pushAi(data.reply || res?.message || '（无回复）', 'reply', 'db', false, true);
+    const summary = (data.reply || '').trim();
+    if (summary) {
+      this._pushAi(summary, false, true);
+      this._log('INFO', `模型自述：${summary.slice(0, 40)}`);
+    } else if (data.executed) {
+      this._log('INFO', `执行完毕，共 ${data.executed} 步`);
+    }
     if (isNew) this.refreshConversations();
   }
 
   private _doConfirm(action: string, target: string, data: any): void {
-    this.api.confirm(action, target, data).subscribe({
-      next: (res: any) => this._pushAi(res?.message || '操作成功'),
-      error: (err: any) =>
-        this._pushAi('操作失败：' + (err.error?.message || err.message)),
+    this._log('INFO', `确认执行 ${action}(${this._args({ target, data })})`);
+    this.api.confirm(action, target, data, this.conversationId).subscribe({
+      next: (res: any) => {
+        this._pushAi(res?.message || '操作成功', true);
+        this._log('INFO', `确认完成：${res?.message || '操作成功'}`);
+      },
+      error: (err: any) => {
+        const msg = err.error?.message || err.message;
+        this._pushAi('操作失败：' + msg, true);
+        this._log('ERROR', `确认失败：${msg}`);
+      },
     });
   }
 
   private _handleError(err: any): void {
-    console.error('[chat] 请求失败:', err?.status, err?.message);
     let msg = '暂时无法处理，请稍后重试';
     if (err?.status === 0) msg = '网络连接失败，请检查后端是否启动（5001 端口）';
     else if (err?.status === 400) msg = err.error?.message || '输入格式不正确';
     else if (err?.status === 404) msg = '未找到相关数据';
     else if (err?.status >= 500) msg = '服务器暂时无法处理，请稍后重试';
-    this._pushAi(msg);
+    this._pushAi(msg, true);
+    this._log('ERROR', `请求失败：${msg}`);
   }
 
   // ---------------------------------------------------------------- 渲染
 
-  private _pushAi(content: string, kind: 'result' | 'reply' = 'reply',
-                  source: 'db' | 'rag' = 'db',
-                  summary = false, system = false, label = ''): void {
-    this.messages.push({ role: 'ai', content, kind, source, summary, system, label });
+  private _pushAi(content: string, system = false, summary = false): void {
+    this.messages.push({ role: 'ai', content, system, summary });
     this.loading = false;
     this.cdr.detectChanges();
     this._scrollToEnd();
   }
 
-  /** 多步时卡片标题写成"第 2 步 · 查询商品"，单步时只写工具名 */
-  private _cardLabel(tool: string, step: number, multi: boolean): string {
-    const name = TOOL_LABEL[tool] || tool || '操作结果';
-    return multi ? `第 ${step} 步 · ${name}` : name;
+  private _log(level: LogEntry['level'], text: string, detail?: string): void {
+    this.logs.unshift({ time: this._hm(new Date()), level, text, detail });
+    if (this.logs.length > 300) this.logs.length = 300;
+    this.cdr.detectChanges();
+  }
+
+  /** 把后端 action_logs 的一行还原成日志条目 */
+  private _logFromRow(a: any): LogEntry {
+    let args: any = a?.args;
+    if (typeof args === 'string' && args) {
+      try { args = JSON.parse(args); } catch { /* 保持原样 */ }
+    }
+    let detail: string | undefined = a?.detail || undefined;
+    if (detail) {
+      try { detail = JSON.stringify(JSON.parse(detail), null, 2); } catch { /* 保持原样 */ }
+    }
+    const call = `${a.tool}(${this._args(args)})`;
+    const time = String(a.at || '').slice(11, 19) || this._hm(new Date());
+    if (a.skipped) return { time, level: 'WARN', text: `${call} 被跳过：${a.skipped}` };
+    if (a.ok === false) return { time, level: 'ERROR', text: `${call} → 执行失败` };
+    return { time, level: 'INFO', text: `${call} → ${a.summary || 'ok'}`, detail };
+  }
+
+  private _hm(d: Date): string {
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }
+
+  private _args(args: any): string {
+    if (!args || (typeof args === 'object' && !Object.keys(args).length)) return '';
+    let s = JSON.stringify(args);
+    if (s.length > 72) s = s.slice(0, 72) + '…';
+    return s;
+  }
+
+  /** 把工具返回值压成一行摘要 */
+  private _summarize(r: any): string {
+    if (!r) return '无返回';
+    const d = r.data;
+    if (Array.isArray(d)) {
+      if (!d.length) return r.message || '0 条';
+      const names = d.slice(0, 3)
+        .map((x: any) => x?.name || x?.product_name || '')
+        .filter(Boolean);
+      return `${d.length} 条` + (names.length ? `：${names.join('、')}` : '');
+    }
+    if (d && typeof d === 'object') {
+      if ('id' in d) return `新增 id=${d.id}`;
+      if ('affected' in d) return `影响 ${d.affected} 行`;
+    }
+    return r.message || 'ok';
+  }
+
+  toggleDetail(i: number): void {
+    if (this.expanded.has(i)) this.expanded.delete(i);
+    else this.expanded.add(i);
+    this.cdr.detectChanges();
   }
 
   private _scrollToEnd(): void {
@@ -234,50 +319,5 @@ export class Chat implements OnInit {
       const el = this.scroller?.nativeElement;
       if (el) el.scrollTop = el.scrollHeight;
     }, 30);
-  }
-
-  /** 只渲染"工具返回值"，绝不渲染模型的话 */
-  private _formatResult(result: any, fallback: string): string {
-    if (!result) return fallback ?? '（无回复）';
-
-    const data = result.data;
-
-    if (Array.isArray(data)) {
-      if (data.length === 0) return result.message || '未找到数据';
-
-      const lines = data.map((item: any) => {
-        if (item.name != null && item.price != null) {
-          const stock = item.stock != null ? `  库存 ${item.stock}` : '';
-          const line = `· ${item.name}  ¥${item.price}${stock}`;
-          return item.reason ? `${line}\n  理由：${item.reason}` : line;
-        }
-        if (item.product_name != null && item.quantity != null) {
-          const amount = item.total != null ? `  ¥${item.total}` : '';
-          const time = item.sold_at || item.purchased_at || '';
-          const timeStr = time ? `  ${this._fmtTime(time)}` : '';
-          return `· ${item.product_name}  × ${item.quantity}${amount}${timeStr}`;
-        }
-        return `· ${JSON.stringify(item)}`;
-      });
-
-      const head = result.message && !data.length ? result.message : `共 ${data.length} 条`;
-      return `${head}：\n${lines.join('\n')}`;
-    }
-
-    if (data && typeof data === 'object' && 'id' in data) {
-      return `${result.message || '新增成功'}（ID: ${data.id}）`;
-    }
-    if (data && typeof data === 'object' && 'affected' in data) {
-      return `${result.message || '操作成功'}（影响 ${data.affected} 行）`;
-    }
-
-    return result.message ?? fallback ?? '（无回复）';
-  }
-
-  private _fmtTime(iso: string): string {
-    if (!iso) return '';
-    const d = new Date(iso);
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 }

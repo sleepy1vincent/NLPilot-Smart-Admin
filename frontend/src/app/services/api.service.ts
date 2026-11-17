@@ -38,8 +38,9 @@ export class ApiService {
       conversation_id: conversationId ?? null,
     });
   }
-  confirm(action: string, target: string, data: any): Observable<any> {
-    return this.http.post<any>(`${this.base}/chat/confirm`, { action, target, data });
+  confirm(action: string, target: string, data: any, conversationId: number | null = null): Observable<any> {
+    return this.http.post<any>(`${this.base}/chat/confirm`,
+      { action, target, data, conversation_id: conversationId });
   }
 
   // ---------------- 会话 ----------------

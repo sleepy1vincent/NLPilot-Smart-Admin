@@ -1,100 +1,108 @@
-<div class="shell">
-  <!-- 侧边栏：会话列表 -->
-  <aside class="side">
-    <div class="side-head">
-      <div class="brand">
-        <span class="dot"></span>
-        NLPilot
-      </div>
-      <button class="new-btn" (click)="newChat()" title="新建对话">＋</button>
+<div class="app">
+  <!-- 顶栏 -->
+  <header class="topbar">
+    <div class="brand">
+      NLPilot
+      <span class="sub">商品管理 · LLM 代理</span>
     </div>
 
-    <div class="conv-list">
+    <nav class="tabs">
+      <button class="tab active">对话</button>
+      <button class="tab" (click)="newChat()">新对话</button>
+      <button class="tab" (click)="toggleConvs()">历史 {{ conversations.length }}</button>
+    </nav>
+
+    <div class="status">
+      <span class="clock">{{ now }}</span>
+      <span class="pill" [class.busy]="loading">{{ loading ? 'LLM 运行中' : 'LLM 空闲' }}</span>
+    </div>
+  </header>
+
+  <!-- 历史会话下拉 -->
+  @if (showConvs) {
+    <div class="conv-pop">
       @for (c of conversations; track c.id) {
-        <div class="conv" [class.active]="c.id === conversationId" (click)="openChat(c.id)">
-          <div class="conv-title">{{ c.title }}</div>
-          <div class="conv-meta">{{ c.count }} 条 · {{ c.last_update.slice(5, 16) }}</div>
+        <div class="conv" [class.on]="c.id === conversationId" (click)="openChat(c.id)">
+          <span class="conv-title">{{ c.title }}</span>
+          <span class="conv-meta">{{ c.count }} 条</span>
           <button class="conv-del" (click)="removeChat($event, c.id)" title="删除">×</button>
         </div>
       }
-      @if (conversations.length === 0) {
-        <div class="side-empty">还没有对话<br /><span>在右侧说点什么吧</span></div>
+      @if (!conversations.length) {
+        <div class="conv-empty">还没有历史对话</div>
       }
     </div>
+  }
 
-    <div class="side-foot">
-      <span>多步 Agent · 结果可核对</span>
-    </div>
-  </aside>
-
-  <!-- 主区 -->
-  <section class="main">
-    <header class="main-head">
-      <h1>{{ conversationId ? '对话 #' + conversationId : '新对话' }}</h1>
-      <p>查库存 · 推荐商品 · 改价格 · 记销售进货</p>
-    </header>
-
-    <div class="messages" #scroller>
-      @if (messages.length === 0) {
-        <div class="welcome">
-          <div class="welcome-icon">🛍️</div>
-          <h2>我能帮你管商品</h2>
-          <div class="chips">
-            <button class="chip" (click)="quick('查一下 iPhone15 的库存')">查一下 iPhone15 的库存</button>
-            <button class="chip" (click)="quick('500 以内送女朋友什么好')">500 以内送女朋友什么好</button>
-            <button class="chip" (click)="quick('最便宜的商品？')">最便宜的商品？</button>
-            <button class="chip" (click)="quick('卖了 2 个 AirPodsPro')">卖了 2 个 AirPodsPro</button>
-          </div>
-        </div>
-      }
-
-      @for (m of messages; track $index) {
-        <div class="row"
-             [class.row-user]="m.role === 'user'"
-             [class.row-system]="m.system">
-          @if (m.kind === 'result') {
-            <div class="card" [class.rag]="m.source === 'rag'">
-              <div class="card-head">
-                <span class="badge" [class.rag]="m.source === 'rag'">
-                  {{ m.source === 'rag' ? '语义召回' : '数据库' }}
-                </span>
-                <span class="card-title">{{ m.label || '操作结果' }}</span>
-              </div>
-              <div class="card-body">{{ m.content }}</div>
+  <main class="body">
+    <!-- 左：对话（只有"话"） -->
+    <section class="chat-col">
+      <div class="messages" #scroller>
+        @if (!messages.length) {
+          <div class="welcome">
+            <div class="welcome-title">我能帮你管商品</div>
+            <div class="welcome-sub">一句话下达指令，右侧会记录我做的每一步</div>
+            <div class="chips">
+              <button class="chip" (click)="quick('查一下 iPhone15 的库存')">查一下 iPhone15 的库存</button>
+              <button class="chip" (click)="quick('哪个该打折')">哪个该打折</button>
+              <button class="chip" (click)="quick('500 以内送女朋友什么好')">500 以内送女朋友什么好</button>
+              <button class="chip" (click)="quick('卖了 2 个 AirPodsPro')">卖了 2 个 AirPodsPro</button>
             </div>
-          } @else if (m.role === 'user') {
-            <div class="bubble user">{{ m.content }}</div>
-          } @else {
-            <div class="bubble ai" [class.system]="m.system" [class.summary]="m.summary">
-              @if (m.summary) {
-                <div class="bubble-tag">多步总结 · 依据上方工具结果</div>
-              }
-              <span class="bubble-text">{{ m.content }}</span>
-            </div>
-          }
-        </div>
-      }
-
-      @if (loading) {
-        <div class="row">
-          <div class="bubble ai typing">
-            <span></span><span></span><span></span>
           </div>
-        </div>
-      }
-    </div>
+        }
 
-    <div class="composer">
-      <textarea
-        [(ngModel)]="userInput"
-        (keydown)="onKey($event)"
-        placeholder="例如：查一下 iPhone15 的库存（Enter 发送，Shift+Enter 换行）"
-        rows="1"
-        [disabled]="loading"
-      ></textarea>
-      <button (click)="send()" [disabled]="loading || !userInput.trim()">
-        {{ loading ? '处理中' : '发送' }}
-      </button>
-    </div>
-  </section>
+        @for (m of messages; track $index) {
+          <div class="row" [class.user]="m.role === 'user'">
+            <div class="bubble"
+                 [class.user]="m.role === 'user'"
+                 [class.system]="m.system"
+                 [class.summary]="m.summary">{{ m.content }}</div>
+          </div>
+        }
+
+        @if (loading) {
+          <div class="row">
+            <div class="bubble typing"><span></span><span></span><span></span></div>
+          </div>
+        }
+      </div>
+
+      <div class="composer">
+        <textarea [(ngModel)]="userInput" (keydown)="onKey($event)"
+                  placeholder="例如：哪个该打折 / 查一下 iPhone15 的库存（Enter 发送）"
+                  rows="1" [disabled]="loading"></textarea>
+        <button (click)="send()" [disabled]="loading || !userInput.trim()">
+          {{ loading ? '…' : '发送' }}
+        </button>
+      </div>
+    </section>
+
+    <!-- 右：AI 日志 -->
+    <aside class="log-col">
+      <div class="log-head">
+        <span>LLM 日志</span>
+        <span class="log-count">{{ logs.length }} 条</span>
+      </div>
+      <div class="log-body">
+        @for (l of logs; track $index) {
+          <div class="log-line" [class.warn]="l.level === 'WARN'" [class.err]="l.level === 'ERROR'">
+            <span class="lv">{{ l.level }}</span>
+            <span class="ts">{{ l.time }}</span>
+            <span class="tx">{{ l.text }}</span>
+            @if (l.detail) {
+              <button class="more" (click)="toggleDetail($index)" title="展开原始数据">
+                {{ expanded.has($index) ? '收起' : '数据' }}
+              </button>
+            }
+            @if (l.detail && expanded.has($index)) {
+              <pre class="detail">{{ l.detail }}</pre>
+            }
+          </div>
+        }
+        @if (!logs.length) {
+          <div class="log-empty">暂无动作。发一条指令后，这里会显示我调用了什么、返回了什么。</div>
+        }
+      </div>
+    </aside>
+  </main>
 </div>

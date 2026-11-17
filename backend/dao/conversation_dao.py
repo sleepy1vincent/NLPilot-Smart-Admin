@@ -31,6 +31,32 @@ from db import get_conn, Transaction
 
 TITLE_LEN = 24
 
+# 动作日志表（启动时自动补齐，不用手动跑 SQL）
+_ACTION_DDL = """
+CREATE TABLE IF NOT EXISTS action_logs (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  belong_id  INT NOT NULL,
+  step       INT NOT NULL DEFAULT 0,
+  tool       VARCHAR(64) NOT NULL,
+  args       TEXT NULL,
+  ok         TINYINT(1) NULL,
+  skipped    VARCHAR(128) NULL,
+  summary    VARCHAR(500) NULL,
+  detail     MEDIUMTEXT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_belong (belong_id),
+  CONSTRAINT fk_action_conv FOREIGN KEY (belong_id)
+      REFERENCES conversations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+"""
+
+
+def ensure_table() -> None:
+    """确保 action_logs 存在（幂等）。旧库不手动迁移也不会报错。"""
+    with Transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(_ACTION_DDL)
+
 
 def create() -> int:
     """新建一个会话，返回 id。
@@ -53,6 +79,7 @@ def clear_messages(conv_id: int) -> int:
     with Transaction() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM messages WHERE belong_id = %s", (conv_id,))
+            cur.execute("DELETE FROM action_logs WHERE belong_id = %s", (conv_id,))
             return cur.rowcount
 
 
@@ -70,6 +97,84 @@ def add_message(conv_id: int, role: str, content: str) -> None:
                 "UPDATE conversations SET last_update = CURRENT_TIMESTAMP WHERE id = %s",
                 (conv_id,),
             )
+
+
+def add_actions(conv_id: int, steps: list) -> None:
+    """把一轮对话的 steps 落库（右侧日志的历史来源）。
+
+    存什么：工具名 / 参数 / ok / 被跳过原因 / 结果摘要 / 原始返回（截断）。
+    摘要和 detail 都存，前端展示时不用重算。
+    """
+    if not steps:
+        return
+    with Transaction() as conn:
+        with conn.cursor() as cur:
+            for s in steps:
+                tool = (s or {}).get("tool")
+                if not tool:
+                    continue
+                detail = None
+                if s.get("result") is not None:
+                    try:
+                        import json as _json
+                        detail = _json.dumps(s["result"], ensure_ascii=False)[:4000]
+                    except Exception:
+                        detail = None
+                cur.execute(
+                    "INSERT INTO action_logs "
+                    "(belong_id, step, tool, args, ok, skipped, summary, detail) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (conv_id, int(s.get("step") or 0), tool,
+                     _json_dumps(s.get("args")), 1 if s.get("ok") else 0,
+                     s.get("skipped"), _summary_of(s.get("result")), detail),
+                )
+
+
+def raw_actions(conv_id: int, limit: int = 200) -> list:
+    """按时间正序取动作日志。"""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT step, tool, args, ok, skipped, summary, detail, created_at "
+                "FROM action_logs WHERE belong_id = %s ORDER BY id ASC LIMIT %s",
+                (conv_id, limit),
+            )
+            rows = cur.fetchall()
+    return [
+        {"step": r["step"], "tool": r["tool"], "args": r["args"],
+         "ok": bool(r["ok"]), "skipped": r["skipped"],
+         "summary": r["summary"], "detail": r["detail"],
+         "at": str(r["created_at"])}
+        for r in rows
+    ]
+
+
+def _json_dumps(v) -> str | None:
+    import json as _json
+    try:
+        return _json.dumps(v, ensure_ascii=False) if v is not None else None
+    except Exception:
+        return None
+
+
+def _summary_of(r) -> str | None:
+    """把工具返回值压成一行摘要（与前端 _summarize 同口径）。"""
+    if not isinstance(r, dict):
+        return None
+    d = r.get("data")
+    if isinstance(d, list):
+        if not d:
+            return r.get("message") or "0 条"
+        names = [x.get("name") or x.get("product_name") or ""
+                 for x in d[:3] if isinstance(x, dict)]
+        names = [n for n in names if n]
+        return f"{len(d)} 条" + (f"：{'、'.join(names)}" if names else "")
+    if isinstance(d, dict):
+        if "id" in d:
+            return f"新增 id={d['id']}"
+        if "affected" in d:
+            return f"影响 {d['affected']} 行"
+    return r.get("message") or "ok"
 
 
 def raw_messages(conv_id: int, limit: int = 200) -> list:
@@ -147,7 +252,8 @@ def get_conversation(conv_id: int) -> dict | None:
     if not row:
         return None
     return {"id": row["id"], "last_update": str(row["last_update"]),
-            "messages": raw_messages(conv_id)}
+            "messages": raw_messages(conv_id),
+            "logs": raw_actions(conv_id)}
 
 
 def delete(conv_id: int) -> int:
